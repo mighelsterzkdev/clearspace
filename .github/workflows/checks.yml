@@ -1,0 +1,50 @@
+name: Checks
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop-ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: desktop-ui/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: desktop-ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+      - name: Verify committed assets
+        run: |
+          git diff --exit-code -- ../src/clearspace/desktop_assets
+          test -z "$(git ls-files --others --exclude-standard -- ../src/clearspace/desktop_assets)"
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: constraints.txt
+      - run: python -B -m pip install -c constraints.txt -e ".[build]"
+      - run: python -B -m unittest discover -s tests -v
+      - run: python -B -c "from clearspace.diagnostics import verify_portable; verify_portable()"
+      - run: python -B scripts/build_windows.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: clearspace-windows-x64
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clearspace-cleaner"
+version = "0.1.0"
+description = "A transparent Windows cleaner: analyze, review, and remove selected temporary files."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["pywebview==6.2.1"]
+
+[project.optional-dependencies]
+build = ["pyinstaller==6.22.3"]
+
+[project.scripts]
+clearspace-cli = "clearspace.cli:main"
+
+[project.gui-scripts]
+clearspace = "clearspace.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+clearspace = ["desktop_assets/*", "desktop_assets/assets/*"]

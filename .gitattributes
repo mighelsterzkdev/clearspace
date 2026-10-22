@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.png binary
+*.ico binary
+src/clearspace/desktop_assets/** -whitespace linguist-generated=true
+third_party/** -whitespace
+desktop-ui/licenses/** -whitespace
+desktop-ui/SHADCN-LICENSE.txt -whitespace
