@@ -12,9 +12,12 @@ All production categories have minimum age **0**. Existing file locks, permissio
 | User temporary files | `LOCAL/Temp` |
 | Windows temporary files | `WINDOWS/Temp` |
 | Crash dumps | `LOCAL/CrashDumps`, only `*.dmp` |
+| System crash diagnostics | `WINDOWS/Minidump`, `WINDOWS/LiveKernelReports`, only `*.dmp`; exact `WINDOWS/MEMORY.DMP` without recursion |
 | Error reports | `LOCAL` and `COMMON/Microsoft/Windows/WER/{ReportArchive,ReportQueue,Temp}` |
 | Servicing logs | `WINDOWS/Logs/CBS`, only `CBS*.log` and `CbsPersist_*.cab`, no recursion |
 | Deployment logs | `WINDOWS/Logs/DISM`, only `dism.log*`, no recursion |
+| Update diagnostic logs | `WINDOWS/Logs/WindowsUpdate`, `COMMON/USOShared/Logs`, only `*.etl` and `WindowsUpdate.log`, no recursion |
+| Setup diagnostic logs | Fixed Panther, UnattendGC, Sysprep/Panther and Logs/MoSetup folders; explicit diagnostic log names, no traversal or configuration deletion |
 | Thumbnails | `LOCAL/Microsoft/Windows/Explorer`, only `thumbcache*.db`, no recursion |
 | DirectX shaders | `LOCAL/D3DSCache` |
 | NVIDIA shaders | Specific `DXCache`, `GLCache`, `NV_Cache` leaves under NVIDIA's Local/LocalLow folders |
@@ -24,11 +27,22 @@ All production categories have minimum age **0**. Existing file locks, permissio
 | Discord | Known Discord/PTB/Canary profiles: only `Code Cache` and `GPUCache` |
 | VS Code / Cursor | Explicit rendering/compiled-code caches and cached VSIX downloads; never `User`, workspace storage, or installed extensions |
 | Epic Games Launcher | Known `Saved/webcache[_digits]` profiles and optional `Default`: only rendering-cache leaves |
+| Steam / Slack | Specific web rendering `Cache`, `Code Cache`, `GPUCache` leaves; browser/account stores and games are kept |
 | pip | Default `http`, `http-v2`, `wheels` cache leaves |
 | npm | Default `npm-cache/_cacache`; never projects, global modules, or `_npx` installations |
 | NuGet | Default `NuGet/v3-cache` HTTP responses; never global installed packages |
+| Recent-file shortcuts | `ROAMING/Microsoft/Windows/Recent`, only root `*.lnk`/`*.url`; no Jump List database traversal or original target deletion |
+| Run / Explorer / RecentDocs histories | Selected history values only under the three fixed current-user Explorer history registry keys |
+| Windows component cleanup | DISM `/Online /Cleanup-Image /AnalyzeComponentStore`, then confirmed `/StartComponentCleanup /NoRestart`; never `/ResetBase` or manual component-store deletion |
+| Delivery Optimization | Windows module cache query and confirmed `Delete-DeliveryOptimizationCache -Force`; never `-IncludePinnedFiles` or manual cache-directory deletion |
 
 ## Research
+
+The Windows-specific scopes follow Microsoft's [dump-file locations](https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/read-small-memory-dump-file), [live kernel dumps](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/kernel-live-dump-code-reference), [Windows Update logs](https://learn.microsoft.com/en-us/windows/deployment/update/windows-update-logs), and [setup logs](https://learn.microsoft.com/en-us/windows/deployment/upgrade/log-files). Original setup configuration is excluded. Slack leaves were compared with [BleachBit's definition](https://github.com/bleachbit/bleachbit/blob/master/cleaners/slack.xml); Steam rendering leaves with Winapp2.
+
+Windows-owned [component cleanup](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/clean-up-the-winsxs-folder) and the [Delivery Optimization cmdlet](https://learn.microsoft.com/en-us/powershell/module/deliveryoptimization/delete-deliveryoptimizationcache) handle their respective data. Queries are bounded and read-only. If maintenance times out, the Windows process is kept running and overlapping maintenance is blocked until it exits. The result never invents a reclaimed size. Administrator permission is required; component cleanup also checks pending restart/update markers.
+
+History providers cover `HKCU/Software/Microsoft/Windows/CurrentVersion/Explorer/{RunMRU,WordWheelQuery,RecentDocs}`. Only recognized entry/index values are removed, with indices last; default/unknown values and keys are kept. Exact snapshots, key revisions and value contents are checked before and during clearing. There is a residual per-value comparison race with concurrent registry writers. RecentDocs subkeys are analyzed together; no Shell shortcut targets, pinned Jump Lists, CloudStore or UserAssist data is removed. Windows Search's recent apps are managed through [Search permissions](https://support.microsoft.com/en-gb/windows/privacy/windows-search-and-privacy); the app opens its documented [Settings URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings) only after the user clicks.
 
 Recycle Bin totals come from [SHQueryRecycleBinW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shqueryrecyclebinw). Confirmed emptying uses [SHEmptyRecycleBinW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shemptyrecyclebinw). The scan records aggregate items and size; those are not file identities. Changed totals skip the native action, while matching totals allow Windows to empty its current contents. The confirmation discloses possible concurrent additions. Native cleanup cannot be stopped once it starts; result totals are bounded observed changes, not a physical disk-space measurement. Tests substitute a fake bin provider and never empty the real bin.
 
@@ -42,4 +56,4 @@ Epic's publisher documents rebuilding its web cache in [this support article](ht
 
 Package cache behavior is documented by [pip](https://pip.pypa.io/en/stable/topics/caching/), [npm](https://docs.npmjs.com/cli/v11/commands/npm-cache/#details), and [NuGet](https://github.com/NuGet/docs.microsoft.com-nuget/blob/main/docs/consume-packages/managing-the-global-packages-and-cache-folders.md). uv is excluded because its [official cache documentation](https://github.com/astral-sh/uv/blob/main/docs/concepts/cache.md) requires coordination through its own commands and locks.
 
-The concept of using Windows' own maintenance operations is also discussed by [Cleanmgr+](https://github.com/builtbybel/CleanmgrPlus). Windows component-store/update cleanup would need a separate native adapter; these rules do not manually erase `WinSxS`, `Installer`, or `SoftwareDistribution`.
+The concept of using Windows' own maintenance operations is also discussed by [Cleanmgr+](https://github.com/builtbybel/CleanmgrPlus). The native component adapter above does not manually erase `WinSxS`, `Installer`, or `SoftwareDistribution`. Windows.old, restore points, installed-driver packages, browser sessions and personal files are outside these cleanup rules.

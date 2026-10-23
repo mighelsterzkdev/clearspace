@@ -9,4 +9,7 @@ export function formatBytes(value: number): string {
 }
 export function countFiles(value: number): string { return `${value.toLocaleString('en-US')} ${value === 1 ? 'file' : 'files'}` }
 export function countItems(value: number): string { return `${value.toLocaleString('en-US')} ${value === 1 ? 'item' : 'items'}` }
+export function countActions(value: number): string { return `${value.toLocaleString('en-US')} cleanup ${value === 1 ? 'action' : 'actions'}` }
 export function isRecycleBin(category: Category): boolean { return category.native_action === 'empty_recycle_bin' || category.id === 'recycle_bin' }
+export function isNativeAction(category: Category): boolean { return Boolean(category.native_action) && !isRecycleBin(category) }
+export function isHistoryAction(category: Pick<Category, 'native_action'>): boolean { return ['run_history', 'explorer_search_history', 'recent_document_history'].includes(category.native_action || '') }

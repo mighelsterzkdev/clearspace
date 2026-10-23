@@ -12,6 +12,7 @@ def verify_portable():
     from .gui import ASSETS, DesktopApi
     from .service import CleanerService
     from .recycle_bin import RecycleBinSnapshot
+    from .maintenance import ActionSnapshot, ActionResult
     import webview  # noqa: F401 - verify the packaged native host can import
 
     if os.name != "nt" or not (ASSETS / "index.html").is_file():
@@ -40,10 +41,22 @@ def verify_portable():
                 self.snapshot = RecycleBinSnapshot(0, 0)
 
         fake_bin = SandboxBin()
+        class SandboxAction:
+            calls = 0
+
+            def query(self):
+                return ActionSnapshot(True, None, "Portable verification fixture only.")
+
+            def clean(self, snapshot, cancel=None):
+                self.calls += 1
+                return ActionResult(True, None, "Verified native action flow without system cleanup.")
+
+        fake_action = SandboxAction()
         cleaner = Cleaner(categories=[
             Category("user_temp", "Temporary files", "Test fixture only", (cache,), default_selected=True),
             Category("recycle_bin", "Recycle Bin", "Fake bin only", (), native_action="empty_recycle_bin"),
-        ], recycle_bin=fake_bin)
+            Category("windows_components", "Windows update cleanup", "Fake system action only", (), native_action="windows_components"),
+        ], recycle_bin=fake_bin, native_actions={"windows_components": fake_action})
         service = CleanerService(cleaner, root / "state")
         api = DesktopApi(service)
         try:
@@ -80,5 +93,19 @@ def verify_portable():
             result = api.get_state()["state"]
             assert result["phase"] == "completed" and result["result"]["removed"] == 2
             assert fake_bin.calls == 1
+            assert api.set_selection(["windows_components"])["ok"]
+            assert api.scan()["ok"]
+            deadline = time.monotonic() + 10
+            while service.active() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            ready = api.get_state()["state"]
+            assert ready["phase"] == "ready" and fake_action.calls == 0
+            assert api.clean(ready["scan_id"], ["windows_components"])["ok"]
+            deadline = time.monotonic() + 10
+            while service.active() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            result = api.get_state()["state"]["result"]
+            assert result["removed"] == 0 and result["freed_bytes"] == 0
+            assert result["actions_completed"] == 1 and fake_action.calls == 1
         finally:
             service.shutdown()

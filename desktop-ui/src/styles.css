@@ -81,6 +81,7 @@
   .inline-error { @apply text-sm leading-6 text-red-300; }
   .empty-result { @apply mb-4 flex items-center gap-4 rounded-md border px-4 py-4; }
   .empty-result > svg { @apply shrink-0 text-emerald-400; }
+  .empty-result-warning > svg { @apply text-amber-300; }
   .empty-result p { @apply text-base font-medium; }
   .empty-result span { @apply text-sm leading-6 text-muted-foreground; }
   .cleanup-result { @apply mb-4 flex items-start gap-4 rounded-md border p-4; }
@@ -90,6 +91,17 @@
   .cleanup-result p { @apply mt-1 text-sm leading-6 text-muted-foreground; }
   .cleanup-result strong { @apply font-medium text-foreground; }
   .cleanup-result > div:last-child > span { @apply block text-sm leading-6 text-muted-foreground; }
+  .cleanup-result > div:last-child { @apply min-w-0 flex-1; }
+  .cleanup-action-list { @apply mt-3 space-y-3; }
+  .cleanup-action-list > li { @apply flex items-start gap-2; }
+  .cleanup-action-list > li > svg { @apply mt-1 size-4 shrink-0; }
+  .cleanup-action-list > li > div { @apply min-w-0 flex-1; }
+  .cleanup-action-list p { @apply mt-0 flex flex-wrap items-baseline gap-x-2; }
+  .cleanup-action-list p > span, .cleanup-action-list li > div > span { @apply text-sm leading-6 text-muted-foreground; }
+  .cleanup-action-list li > div > span { @apply block break-words; }
+  .search-history-settings { @apply mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4; }
+  .search-history-settings h3 { @apply text-sm font-medium; }
+  .search-history-settings p { @apply mt-1 text-sm leading-6 text-muted-foreground; }
   .action-bar { @apply flex shrink-0 items-center justify-between gap-6 border-t px-6 py-4; }
   .action-bar p { @apply text-base font-medium; }
   .action-bar span { @apply block text-sm leading-6 text-muted-foreground; }
@@ -97,7 +109,7 @@
   .app-footer { @apply flex min-h-10 shrink-0 items-center justify-between gap-4 border-t px-6 py-2 text-sm text-muted-foreground; }
   .confirm-dialog { @apply max-h-[calc(100dvh-32px)] w-[calc(100%-32px)] overflow-y-auto rounded-lg; }
   .review-categories { @apply text-sm leading-6 text-muted-foreground; }
-  .review-bin-notice { @apply rounded-md border bg-secondary/40 p-3 text-sm leading-6; }
+  .review-cleanup-notes { @apply space-y-2 rounded-md border bg-secondary/40 p-3 text-sm leading-6; }
   .files-dialog { @apply flex max-h-[calc(100dvh-32px)] w-[calc(100%-32px)] max-w-3xl flex-col rounded-lg; }
   .file-list { @apply min-h-0 overflow-y-auto; }
   .file-list > li { @apply flex items-center gap-3 border-b py-3 first:pt-0 last:border-b-0 last:pb-0; }

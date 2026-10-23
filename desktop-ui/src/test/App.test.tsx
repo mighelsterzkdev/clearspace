@@ -2,11 +2,11 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import type { CleanerApi, CleanerState, FilesResponse, StateResponse } from '../types'
+import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse } from '../types'
 
 function initial(): CleanerState {
   return {
-    version: '0.3.0', phase: 'idle', scan_id: null, scanned_at: null,
+    version: '0.4.0', phase: 'idle', scan_id: null, scanned_at: null,
     categories: [
       { id: 'recycle_bin', title: 'Recycle Bin', description: 'Deleted files and folders.', group: 'Windows', native_action: 'empty_recycle_bin', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'user_temp', title: 'Temporary files', description: 'User temporary files.', group: 'Windows', recommended: true, available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
@@ -21,8 +21,14 @@ function initial(): CleanerState {
   }
 }
 
-function bridge() {
+function nativeCategory(id: string, title: string, sizeKnown = true): Category {
+  return { id, title, native_action: id, group: 'Windows', description: 'Native Windows cleanup.', available: true,
+    selected: false, reason: null, bytes: 0, files: 0, skipped: 0, actions: 0, size_known: sizeKnown }
+}
+
+function bridge(extraCategories: Category[] = []) {
   let state = initial()
+  state.categories.push(...extraCategories)
   const snapshot = (): StateResponse => ({ ok: true, state: structuredClone(state) })
   const files = [
     { name: 'old-cache.tmp', path: 'C:\\Sandbox\\Temp\\old-cache.tmp', bytes: 1024 },
@@ -32,18 +38,26 @@ function bridge() {
   const api = {
     get_state: vi.fn(async () => snapshot()),
     set_selection: vi.fn(async (ids: string[]) => {
-      state = { ...state, phase: 'idle', scan_id: null, result: null, categories: state.categories.map(category => ({ ...category, selected: ids.includes(category.id), bytes: 0, files: 0 })) }
+      state = { ...state, phase: 'idle', scan_id: null, result: null, categories: state.categories.map(category => ({ ...category, selected: ids.includes(category.id), bytes: 0, files: 0, actions: 0 })) }
       return snapshot()
     }),
     scan: vi.fn(async () => {
-      state = { ...state, phase: 'ready', scan_id: 'scan-1', scanned_at: '2026-10-22T12:00:00Z', categories: state.categories.map(category => ({ ...category, files: category.selected ? 3 : 0, bytes: category.selected ? 2048 : 0 })) }
+      state = { ...state, phase: 'ready', scan_id: 'scan-1', scanned_at: '2026-10-22T12:00:00Z', categories: state.categories.map(category => {
+        const native = Boolean(category.native_action) && category.native_action !== 'empty_recycle_bin'
+        return { ...category, files: category.selected && !native ? 3 : 0, bytes: category.selected && !native ? 2048 : 0, actions: category.selected && native ? 1 : 0 }
+      }) }
       return snapshot()
     }),
     cancel: vi.fn(async () => { state = { ...state, phase: 'cancelled', scan_id: null }; return snapshot() }),
     clean: vi.fn(async (_scanId: string, _ids: string[]) => {
-      state = { ...state, phase: 'completed', scan_id: null, result: { removed: 2, freed_bytes: 1536, skipped: 1, failed: 0, cancelled: false } }
+      const native = state.categories.filter(category => category.selected && category.native_action && category.native_action !== 'empty_recycle_bin')
+      const filesSelected = state.categories.some(category => category.selected && category.files > 0)
+      state = { ...state, phase: 'completed', scan_id: null, result: { removed: filesSelected ? 2 : 0, freed_bytes: filesSelected ? 1536 : 0,
+        skipped: filesSelected ? 1 : 0, failed: 0, cancelled: false, actions_completed: native.length, actions_failed: 0,
+        actions: native.map(category => ({ category_id: category.id, title: category.title, status: 'completed', freed_bytes: category.size_known === false ? null : 0, detail: null })) } }
       return snapshot()
     }),
+    open_search_settings: vi.fn(async () => snapshot()),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
   } satisfies CleanerApi
   window.pywebview = { api }
@@ -326,6 +340,185 @@ describe('Recycle Bin cleanup', () => {
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('18 items from the selected categories will be permanently deleted.')).toBeVisible()
     expect(within(dialog).getByText('Recycle Bin · Temporary files · Chrome cache · Python package cache · Windows diagnostic logs · Discord cache')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+})
+
+describe('Windows cleanup actions', () => {
+  it('supports an unknown-size action with zero files and confirms its native scope', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge([nativeCategory('windows_components', 'Windows component cleanup', false)])
+    await api.set_selection(['windows_components'])
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    const row = screen.getByRole('checkbox', { name: 'Windows component cleanup' }).closest('li')!
+    expect(within(row).getByText('Managed by Windows')).toBeVisible()
+    expect(within(row).getByText('Ready to clean')).toBeVisible()
+    expect(screen.getByText('1 cleanup action')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'View files for Windows component cleanup' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Nothing to clean in the selected categories')).not.toBeInTheDocument()
+    expect(api.clean).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Confirm cleanup' })
+    expect(within(dialog).getByText('Run 1 cleanup action from the selected categories.')).toBeVisible()
+    expect(within(dialog).getByText('Windows component cleanup')).toBeVisible()
+    expect(within(dialog).getByText('Windows manages system cleanup and may not report an exact size. These operations cannot be stopped once Windows starts.')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm cleanup' }))
+    await waitFor(() => expect(api.clean).toHaveBeenCalledExactlyOnceWith('scan-1', ['windows_components']))
+    expect(await screen.findByRole('heading', { name: 'Cleanup complete' })).toBeVisible()
+    expect(screen.getByText('1 cleanup action completed')).toBeVisible()
+    expect(screen.getByText('Windows did not report how much space these actions removed.')).toBeVisible()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Cleanup action results' })).getByText('Completed')).toBeVisible()
+  })
+
+  it('clears saved history without implying the original files are removed', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge([nativeCategory('recent_document_history', 'Recent documents')])
+    await api.set_selection(['recent_document_history'])
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    const row = screen.getByRole('checkbox', { name: 'Recent documents' }).closest('li')!
+    expect(within(row).getByText('History cleanup')).toBeVisible()
+    expect(screen.getByText('History records only. Original files are kept.')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Confirm cleanup' })
+    expect(within(dialog).getByText('History cleanup removes saved records. Your original files are kept.')).toBeVisible()
+    expect(within(dialog).queryByText(/Windows manages system cleanup/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/permanently delete/)).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('includes file cleanup and native actions together without counting actions as files', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge([nativeCategory('delivery_optimization', 'Delivery Optimization cache', false)])
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('checkbox', { name: 'Delivery Optimization cache' }))
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    expect(await screen.findByText('2 KiB known')).toBeVisible()
+    expect(screen.getByText('3 items · 1 cleanup action')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Confirm cleanup' })
+    expect(within(dialog).getByText('Run 1 cleanup action and permanently delete 3 items from the selected categories.')).toBeVisible()
+    expect(within(dialog).getByText('Temporary files · Delivery Optimization cache')).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm cleanup' }))
+    await waitFor(() => expect(api.clean).toHaveBeenCalledExactlyOnceWith('scan-1', ['user_temp', 'delivery_optimization']))
+    expect(screen.getByText('Known size only. Windows did not report the size of every cleanup action.')).toBeVisible()
+  })
+
+  it('keeps cleanup disabled when an analyzed action reports nothing pending', async () => {
+    const user = userEvent.setup()
+    const { api, snapshot, update } = bridge([nativeCategory('run_history', 'Run dialog history')])
+    await api.set_selection(['run_history'])
+    api.scan.mockImplementationOnce(async () => { update({ phase: 'ready', scan_id: 'empty-action' }); return snapshot() })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    expect(await screen.findByText('Nothing to clean in the selected categories')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(within(screen.getByRole('checkbox', { name: 'Run dialog history' }).closest('li')!).getByText('Nothing to clean')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed native analysis as needing attention instead of an empty successful scan', async () => {
+    const user = userEvent.setup()
+    const failed = { ...nativeCategory('windows_components', 'Windows component cleanup', false), selected: true,
+      analysis_error: true, reason: 'Administrator permission required.' }
+    const { api, snapshot, update } = bridge([failed])
+    await api.set_selection(['windows_components'])
+    api.scan.mockImplementationOnce(async () => {
+      update({ phase: 'ready', scan_id: 'failed-native', categories: [failed] })
+      return snapshot()
+    })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    expect(await screen.findByText('Some categories could not be analyzed')).toBeVisible()
+    expect(screen.getByText('Review the category messages and analyze again.')).toBeVisible()
+    expect(screen.getByText('Administrator permission required.')).toBeVisible()
+    expect(screen.getByText('Needs attention')).toBeVisible()
+    expect(document.querySelector('.app-footer')).toHaveTextContent('Analysis needs attention')
+    expect(document.querySelector('.empty-result-warning .lucide-circle-alert')).toBeInTheDocument()
+    expect(document.querySelector('.empty-result .lucide-check')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Nothing to clean/)).not.toBeInTheDocument()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('keeps valid file cleanup available when another selected category could not be analyzed', async () => {
+    const user = userEvent.setup()
+    const failed = { ...nativeCategory('windows_components', 'Windows component cleanup', false), selected: true,
+      analysis_error: true, reason: 'Administrator permission required.' }
+    const { api, snapshot, update } = bridge([failed])
+    api.scan.mockImplementationOnce(async () => {
+      const temporary = { ...initial().categories.find(category => category.id === 'user_temp')!, files: 3, bytes: 2048 }
+      update({ phase: 'ready', scan_id: 'mixed-scan', categories: [temporary, failed] })
+      return snapshot()
+    })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    expect(screen.getByText('Needs attention')).toBeVisible()
+    expect(screen.queryByText('Nothing to clean in the selected categories')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Remove 2 KiB?' })
+    expect(within(dialog).getByText('Temporary files')).toBeVisible()
+    expect(within(dialog).queryByText('Windows component cleanup')).not.toBeInTheDocument()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('shows native failures and skipped actions alongside successful cleanup', async () => {
+    const { update } = bridge()
+    update({ phase: 'completed', result: { removed: 1, freed_bytes: 1024, skipped: 0, failed: 0, cancelled: false,
+      actions_completed: 1, actions_failed: 1, actions: [
+        { category_id: 'run_history', title: 'Run dialog history', status: 'completed', freed_bytes: 0, detail: 'Saved records cleared.' },
+        { category_id: 'windows_components', title: 'Windows component cleanup', status: 'failed', freed_bytes: null, detail: 'Administrator permission required.' },
+        { category_id: 'delivery_optimization', title: 'Delivery Optimization cache', status: 'skipped', freed_bytes: null, detail: 'Cleanup stopped before this action started.' },
+      ] } })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Cleanup finished with errors' })).toBeVisible()
+    expect(document.querySelector('.app-footer')).toHaveTextContent('Cleanup finished with errors')
+    const list = screen.getByRole('list', { name: 'Cleanup action results' })
+    expect(within(list).getByText('Completed')).toBeVisible()
+    expect(within(list).getByText('Failed')).toBeVisible()
+    expect(within(list).getByText('Skipped')).toBeVisible()
+    expect(within(list).getByText('Administrator permission required.')).toBeVisible()
+    expect(screen.getByText(/1 cleanup action failed/)).toBeVisible()
+  })
+})
+
+describe('Windows Search settings shortcut', () => {
+  it('explains recent apps and opens Windows Settings only after a click', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    expect(screen.getByText('Windows Search recent apps')).toBeVisible()
+    expect(screen.getByText('Clear these in Windows Settings. Recent document history is a separate list.')).toBeVisible()
+    expect(api.open_search_settings).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Open search history settings' }))
+    await waitFor(() => expect(api.open_search_settings).toHaveBeenCalledExactlyOnceWith())
+    expect(api.scan).not.toHaveBeenCalled()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('shows a readable error when Windows Settings cannot be opened', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    api.open_search_settings.mockResolvedValueOnce({ ok: false, error: 'Windows Search settings could not be opened.' })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Open search history settings' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Windows Search settings could not be opened.')
     expect(api.clean).not.toHaveBeenCalled()
   })
 })

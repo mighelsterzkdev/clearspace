@@ -86,6 +86,9 @@ class CleanerService:
                 "reason": (found.reason if found and found.reason else category.reason),
                 "files": found.files if found else 0, "bytes": found.bytes if found else 0,
                 "skipped": found.skipped if found else 0,
+                "actions": getattr(found, "actions", 0) if found else 0,
+                "size_known": getattr(found, "size_known", True) if found else True,
+                "analysis_error": getattr(found, "analysis_error", False) if found else False,
             })
         self._state["categories"] = rows
 
@@ -174,8 +177,8 @@ class CleanerService:
                 raise ServiceError("Analyze the selected categories again before cleaning.")
             if selected != self._selected or not selected:
                 raise ServiceError("Your selection changed. Analyze it again before cleaning.")
-            if not any(item.files for item in self._plan.category_stats if item.category_id in selected):
-                raise ServiceError("There are no matching files to clean.")
+            if not any(item.files or getattr(item, "actions", 0) for item in self._plan.category_stats if item.category_id in selected):
+                raise ServiceError("No selected category is ready to clean. Review its analysis and try again.")
             plan = self._plan
             self._cancel = threading.Event()
             self._state.update(phase="cleaning", scan_id=None, result=None, error=None, progress=self._empty_progress())
@@ -185,6 +188,10 @@ class CleanerService:
                     result = self._cleaner.clean(plan, sorted(selected), cancel=self._cancel, progress=self._progress)
                     summary = {"removed": result.deleted_files, "freed_bytes": result.freed_bytes,
                                "skipped": result.skipped_files, "failed": result.failed_files, "cancelled": result.cancelled}
+                    action_results = [dict(item) for item in getattr(result, "action_results", ())]
+                    summary.update(actions=action_results,
+                                   actions_completed=sum(item["status"] == "completed" for item in action_results),
+                                   actions_failed=sum(item["status"] == "failed" for item in action_results))
                     with self._lock:
                         bin_notes = [item["reason"] for item in getattr(result, "issues", ()) if item["path"] == "Recycle Bin"]
                         self._state.update(phase="cancelled" if result.cancelled else "completed", result=summary,
@@ -210,13 +217,23 @@ class CleanerService:
             self._cancel.set()
             return self.get_state()
 
+    def open_search_settings(self):
+        with self._lock:
+            self._require_idle()
+            try:
+                from .history import SEARCH_HISTORY_SETTINGS_URI
+                os.startfile(SEARCH_HISTORY_SETTINGS_URI)
+            except OSError as error:
+                raise ServiceError("Windows Search settings could not be opened.") from error
+            return self.get_state()
+
     def get_files(self, scan_id, category_id, offset=0):
         with self._lock:
             if (not isinstance(scan_id, str) or self._plan is None or scan_id != self._plan.id
                     or category_id not in self._categories or type(offset) is not int or offset < 0):
                 raise ServiceError("This file list is no longer available. Analyze again.")
             if getattr(self._categories[category_id], "native_action", None):
-                raise ServiceError("Windows provides a Recycle Bin item count, not a file preview.")
+                raise ServiceError("This Windows-managed cleanup does not provide a file preview.")
             entries = [entry for entry in self._plan.entries if entry.category_id == category_id]
             if offset > len(entries):
                 raise ServiceError("This page is no longer available.")

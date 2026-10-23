@@ -60,7 +60,11 @@ def discover_categories(locations=None):
     ))
     add("user_temp", "Temporary files", "Temporary files that can be removed now.", [local / "Temp"], recommended=True)
     add("windows_temp", "Windows temporary files", "System temporary files. Protected or locked files are skipped.", [win / "Temp"], recommended=True)
-    add("crash_dumps", "Crash dumps", "Diagnostic memory dumps left by crashed applications.", [local / "CrashDumps"], patterns=("*.dmp",), recommended=True)
+    add("crash_dumps", "Crash dumps", "Application, blue-screen and live-kernel diagnostic dumps.", [
+        local / "CrashDumps", win / "Minidump", win / "LiveKernelReports",
+    ], patterns=("*.dmp",), recommended=True)
+    add("system_memory_dump", "System memory dump", "The complete Windows crash dump (MEMORY.DMP), used for troubleshooting.",
+        [win], patterns=("MEMORY.DMP",), recursive=False)
     add("error_reports", "Windows error reports", "Queued and archived diagnostic reports.", [
         base / "Microsoft/Windows/WER" / name
         for base in (local, common) for name in ("ReportArchive", "ReportQueue", "Temp")
@@ -68,6 +72,13 @@ def discover_categories(locations=None):
     add("windows_cbs_logs", "Windows servicing logs", "CBS diagnostic logs and archived logs.", [win / "Logs/CBS"],
         patterns=("CBS*.log", "CbsPersist_*.cab"), recursive=False)
     add("windows_dism_logs", "Windows deployment logs", "DISM diagnostic log files.", [win / "Logs/DISM"], patterns=("dism.log*",), recursive=False)
+    add("windows_update_logs", "Windows Update logs", "Diagnostic update traces only. Update downloads and installation data are kept.", [
+        win / "Logs/WindowsUpdate", common / "USOShared/Logs",
+    ], patterns=("*.etl", "WindowsUpdate.log"), recursive=False)
+    add("windows_setup_logs", "Windows setup logs", "Installation and upgrade diagnostic logs. Setup configuration and recovery files are kept.", [
+        win / "Panther", win / "Panther/UnattendGC", win / "System32/Sysprep/Panther", win / "Logs/MoSetup",
+    ], patterns=("setupact.log", "setuperr.log", "setup.etl", "PreGatherPnPList.log", "PostGatherPnPList.log", "BlueBox.log"),
+        processes=("setup.exe", "setuphost.exe", "setupprep.exe", "sysprep.exe"), recursive=False)
     add("thumbnail_cache", "Thumbnail cache", "Explorer image previews. Thumbnails will be generated again.", [local / "Microsoft/Windows/Explorer"],
         patterns=("thumbcache*.db",), recursive=False)
     add("directx_cache", "DirectX shader cache", "Compiled shaders. Games may rebuild these on the next launch.", [local / "D3DSCache"])
@@ -109,10 +120,21 @@ def discover_categories(locations=None):
     add("epic_cache", "Epic Games Launcher", "Rendering caches. Close Epic Games Launcher before cleaning.", [
         profile / subprofile / leaf for profile in epic for subprofile in ("", "Default") for leaf in ("Cache", "Code Cache", "GPUCache")
     ], group="Applications", processes=("EpicGamesLauncher.exe", "EpicWebHelper.exe"))
+    add("steam_cache", "Steam", "Web rendering cache. Games, saves and account data are kept.", [
+        local / "Steam/htmlcache" / subprofile / leaf
+        for subprofile in ("", "Default") for leaf in ("Cache", "Code Cache", "GPUCache")
+    ], group="Applications", processes=("steam.exe", "steamwebhelper.exe"))
+    add("slack_cache", "Slack", "Web rendering cache. Workspaces, account data and preferences are kept.", [
+        roaming / "Slack" / leaf for leaf in ("Cache", "Code Cache", "GPUCache")
+    ], group="Applications", processes=("slack.exe",))
 
     add("pip_cache", "Python package cache", "Cached downloads and built wheels. Installed packages are kept.", [
         local / "pip/Cache" / leaf for leaf in ("http", "http-v2", "wheels")
     ], group="Developer tools", processes=("pip.exe", "pip3.exe"))
     add("npm_cache", "npm download cache", "Downloaded package content. Projects and installed modules are kept.", [local / "npm-cache/_cacache"], group="Developer tools")
     add("nuget_cache", "NuGet HTTP cache", "Downloaded HTTP responses. Installed packages are kept.", [local / "NuGet/v3-cache"], group="Developer tools", processes=("nuget.exe", "dotnet.exe", "devenv.exe", "MSBuild.exe"))
+    add("recent_files", "Recent files", "Recent-file shortcuts only. Original files and pinned Jump List items are kept.",
+        [roaming / "Microsoft/Windows/Recent"], group="History", patterns=("*.lnk", "*.url"), recursive=False)
+    from .actions import categories as native_categories
+    categories.extend(native_categories())
     return categories

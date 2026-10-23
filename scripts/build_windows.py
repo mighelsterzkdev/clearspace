@@ -83,6 +83,7 @@ def main():
         subprocess.run([str(built / "clearspace.exe"), "--self-check"], check=True, timeout=60)
         shutil.copytree(built, bundle)
     shutil.copy2(ROOT / "LICENSE", bundle / "LICENSE")
+    shutil.copy2(ROOT / "start-admin.cmd", bundle / "start-admin.cmd")
     (bundle / "start.cmd").write_text('@echo off\nsetlocal\ncd /d "%~dp0"\nstart "" "%~dp0clearspace.exe"\n', encoding="utf-8")
     (bundle / "READ-ME.txt").write_text(
         f"Clearspace {__version__} — Windows x64\n\n"
@@ -90,12 +91,16 @@ def main():
         "Python and Node.js are not required. Microsoft Edge WebView2 Runtime must be installed.\n"
         "Analyze first, inspect the file list, then confirm Clean selected. Cleanup never starts automatically.\n"
         "Select all or choose categories, then Analyze and confirm Clean selected.\n"
-        "Optional Recycle Bin cleanup plus 22 temporary-file/cache categories.\n"
+        "34 categories cover temporary files, recent histories, diagnostics, application caches and native Windows maintenance.\n"
+        "Open start-admin.cmd for Windows update and Delivery Optimization cleanup (Windows asks for permission).\n"
+        "System cleanup uses Windows tools and may not report an exact removed size.\n"
+        "Native Windows maintenance cannot be stopped after it starts; Stop prevents later actions.\n"
+        "Windows Search recent apps are different from Recent documents: use Open search history settings, then Clear device search history.\n"
         "Windows empties the current Recycle Bin; newly recycled items may be included. This cannot be undone.\n"
         "The native Recycle Bin action cannot be interrupted once it starts.\n"
         "There is no minimum file-age restriction. Recent files can be selected too.\n"
         "Files are permanently removed. Files in use, changed files, and filesystem links are skipped.\n"
-        "Your personal Downloads/documents, browser sign-ins, and registry are outside the cleaner's scope.\n"
+        "Original documents, browser sign-ins, installed apps and pinned items are kept. Only the selected specific history records are cleared.\n"
         "Displayed sizes are file data; physical free disk space may differ.\n"
         "Settings and the latest cleanup summary are stored in your LocalAppData/Clearspace folder.\n"
         "Protected locations may need Run as administrator; the app never elevates automatically.\n"

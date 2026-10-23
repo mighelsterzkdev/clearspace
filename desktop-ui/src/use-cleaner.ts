@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { initialState, type CleanerApi, type CleanerState } from './types'
 
-type Mutation = 'set_selection' | 'scan' | 'cancel' | 'clean'
+type Mutation = 'set_selection' | 'scan' | 'cancel' | 'clean' | 'open_search_settings'
 
 export function useCleaner() {
   const [state, setState] = useState<CleanerState>(initialState)

@@ -56,6 +56,9 @@ class DesktopApi:
     def get_files(self, scan_id, category_id, offset=0):
         return self._call(self._service.get_files, scan_id, category_id, offset, details=True)
 
+    def open_search_settings(self):
+        return self._call(self._service.open_search_settings)
+
 
 class _AssetHandler(BaseHTTPRequestHandler):
     def log_message(self, *_args):

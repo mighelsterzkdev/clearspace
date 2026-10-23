@@ -22,6 +22,7 @@ import uuid
 
 from . import windows
 from .recycle_bin import RecycleBinSnapshot, WindowsRecycleBin
+from .actions import NATIVE_ACTION_IDS, create_provider
 
 
 DAY = 24 * 60 * 60
@@ -88,10 +89,20 @@ class CategoryStats:
     bytes: int = 0
     skipped: int = 0
     reason: str | None = None
+    actions: int = 0
+    size_known: bool = True
+    analysis_error: bool = False
 
     def to_dict(self) -> dict:
         return {"category_id": self.category_id, "files": self.files,
-                "bytes": self.bytes, "skipped": self.skipped, "reason": self.reason}
+                "bytes": self.bytes, "skipped": self.skipped, "reason": self.reason,
+                "actions": self.actions, "size_known": self.size_known, "analysis_error": self.analysis_error}
+
+
+@dataclass(frozen=True)
+class NativePlan:
+    category_id: str
+    snapshot: object = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -105,6 +116,7 @@ class Plan:
     truncated: bool
     skipped_files: int
     recycle_bin: RecycleBinSnapshot | None = None
+    native_actions: tuple[NativePlan, ...] = ()
 
     @property
     def total_files(self) -> int:
@@ -112,13 +124,19 @@ class Plan:
 
     @property
     def total_bytes(self) -> int:
-        return sum(entry.size for entry in self.entries) + (self.recycle_bin.bytes if self.recycle_bin else 0)
+        return (sum(entry.size for entry in self.entries) + (self.recycle_bin.bytes if self.recycle_bin else 0)
+                + sum(item.snapshot.bytes or 0 for item in self.native_actions))
+
+    @property
+    def total_actions(self) -> int:
+        return len(self.native_actions)
 
     def to_dict(self, include_entries: bool = False) -> dict:
         result = {
             "id": self.id, "created_at": self.created_at, "expires_at": self.expires_at,
             "categories": [item.to_dict() for item in self.category_stats],
             "total_files": self.total_files, "total_bytes": self.total_bytes,
+            "total_actions": self.total_actions,
             "skipped_files": self.skipped_files, "cancelled": self.cancelled,
             "truncated": self.truncated,
         }
@@ -136,6 +154,7 @@ class Result:
     cancelled: bool
     by_category: dict[str, dict[str, int]]
     issues: tuple[dict[str, str], ...]
+    action_results: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -144,6 +163,7 @@ class Result:
             "cancelled": self.cancelled,
             "by_category": {key: dict(value) for key, value in self.by_category.items()},
             "issues": [dict(issue) for issue in self.issues],
+            "action_results": [dict(item) for item in self.action_results],
         }
 
 
@@ -197,13 +217,14 @@ class Cleaner:
                  process_provider: Callable[[], set[str]] | None = None, *,
                  max_files: int = MAX_FILES, max_visited: int = MAX_VISITED,
                  max_depth: int = MAX_DEPTH, max_scan_seconds: float = MAX_SCAN_SECONDS,
-                 recycle_bin=None):
+                 recycle_bin=None, native_actions=None):
         self.categories = tuple(discover_categories() if categories is None else categories)
         if len({item.id for item in self.categories}) != len(self.categories):
             raise ValueError("Category IDs must be unique.")
         for item in self.categories:
-            if item.native_action is not None and (
-                    item.id != "recycle_bin" or item.native_action != "empty_recycle_bin" or item.roots):
+            if item.native_action is not None and (item.roots or not (
+                    (item.id == "recycle_bin" and item.native_action == "empty_recycle_bin")
+                    or (item.id == item.native_action and item.native_action in NATIVE_ACTION_IDS))):
                 raise ValueError("Unsupported native cleanup action.")
             if not item.id or type(item.minimum_age_days) is not int or item.minimum_age_days < 0:
                 raise ValueError("Cleaning rule age limits must be nonnegative whole days.")
@@ -226,6 +247,12 @@ class Cleaner:
         self._operation = threading.Lock()
         self._latest_plan: Plan | None = None
         self._recycle_bin = recycle_bin if recycle_bin is not None else WindowsRecycleBin()
+        self._native_actions = dict(native_actions or {})
+        if any(identifier not in NATIVE_ACTION_IDS for identifier in self._native_actions):
+            raise ValueError("Unsupported native cleanup provider.")
+        for category in self.categories:
+            if category.native_action in NATIVE_ACTION_IDS and category.native_action not in self._native_actions:
+                self._native_actions[category.native_action] = create_provider(category.native_action)
 
     def _selection(self, ids: Iterable[str]) -> tuple[Category, ...]:
         if isinstance(ids, (str, bytes)):
@@ -266,6 +293,7 @@ class Cleaner:
             total_bytes = 0
             truncated = False
             bin_snapshot = None
+            native_plans = []
             seen_files: set[windows.FileIdentity] = set()
             seen_directories: set[windows.FileIdentity] = set()
             last_report = 0.0
@@ -298,6 +326,24 @@ class Cleaner:
                     reason = "Analysis stopped before this category was completed."
                 if reason:
                     stats.append(CategoryStats(category.id, reason=reason))
+                    report(category.id, True)
+                    continue
+
+                if category.native_action in NATIVE_ACTION_IDS:
+                    try:
+                        snapshot = self._native_actions[category.native_action].query()
+                        if type(snapshot.pending) is not bool or (snapshot.bytes is not None and (
+                                type(snapshot.bytes) is not int or snapshot.bytes < 0)):
+                            raise ValueError("Invalid native cleanup analysis.")
+                        if snapshot.pending:
+                            native_plans.append(NativePlan(category.id, snapshot))
+                        current_bytes = snapshot.bytes or 0
+                        total_bytes += current_bytes
+                        stats.append(CategoryStats(category.id, bytes=current_bytes, reason=snapshot.detail,
+                                                   actions=int(snapshot.pending), size_known=snapshot.bytes is not None))
+                    except (OSError, ValueError) as error:
+                        message = " ".join(str(error).split())[:400] or "Windows could not analyze this cleanup."
+                        stats.append(CategoryStats(category.id, reason=message, size_known=False, analysis_error=True))
                     report(category.id, True)
                     continue
 
@@ -398,7 +444,8 @@ class Cleaner:
                 stats.append(CategoryStats(category.id, current_files, current_bytes, skipped, reason))
                 report(category.id, True)
             plan = Plan(uuid.uuid4().hex, created, created + PLAN_LIFETIME, tuple(entries),
-                        tuple(stats), _cancelled(cancel), truncated, sum(item.skipped for item in stats), bin_snapshot)
+                        tuple(stats), _cancelled(cancel), truncated, sum(item.skipped for item in stats), bin_snapshot,
+                        tuple(native_plans))
             self._latest_plan = plan
             report(None, True)
             return plan
@@ -425,11 +472,13 @@ class Cleaner:
             selected = {category.id: category for category in categories}
             entries = tuple(entry for entry in plan.entries if entry.category_id in selected)
             bin_snapshot = plan.recycle_bin if "recycle_bin" in selected else None
+            native_plans = tuple(item for item in plan.native_actions if item.category_id in selected)
             total_items = len(entries) + (bin_snapshot.items if bin_snapshot else 0)
             outcomes = {category.id: {"deleted_files": 0, "freed_bytes": 0,
                                       "skipped_files": 0, "failed_files": 0}
                         for category in categories}
             issues: list[dict[str, str]] = []
+            action_results = []
             processed = 0
             last_report = 0.0
 
@@ -521,12 +570,34 @@ class Cleaner:
                     issues.append({"path": "Recycle Bin", "reason": bin_issue})
                 processed += bin_snapshot.items
                 report("recycle_bin", True)
+            for item in native_plans:
+                category = selected[item.category_id]
+                if _cancelled(cancel):
+                    action_results.append({"category_id": category.id, "title": category.label,
+                                           "status": "skipped", "freed_bytes": None, "detail": "Cleanup stopped before this action started."})
+                    continue
+                report(category.id, True)
+                try:
+                    native_result = self._native_actions[category.native_action].clean(item.snapshot, cancel=cancel)
+                    completed = native_result.completed
+                    if type(completed) is not bool or (native_result.freed_bytes is not None and (
+                            type(native_result.freed_bytes) is not int or native_result.freed_bytes < 0)):
+                        raise ValueError("Windows returned an invalid cleanup result.")
+                    detail = " ".join((native_result.detail or "").split())[:400] or None
+                    status = "completed" if completed else "skipped" if _cancelled(cancel) else "failed"
+                    if native_result.freed_bytes is not None:
+                        outcomes[category.id]["freed_bytes"] += native_result.freed_bytes
+                except (OSError, ValueError) as error:
+                    status, detail = "failed", " ".join(str(error).split())[:400] or "Windows could not finish this cleanup."
+                    native_result = None
+                action_results.append({"category_id": category.id, "title": category.label, "status": status,
+                                       "freed_bytes": native_result.freed_bytes if native_result else None, "detail": detail})
             result = Result(
                 sum(item["deleted_files"] for item in outcomes.values()),
                 sum(item["freed_bytes"] for item in outcomes.values()),
                 sum(item["skipped_files"] for item in outcomes.values()),
                 sum(item["failed_files"] for item in outcomes.values()),
-                _cancelled(cancel), outcomes, tuple(issues),
+                _cancelled(cancel), outcomes, tuple(issues), tuple(action_results),
             )
             report(None, True)
             return result

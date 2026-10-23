@@ -2,10 +2,16 @@ export type Phase = 'idle' | 'scanning' | 'ready' | 'cleaning' | 'completed' | '
 export interface Category {
   id: string; title: string; description: string; selected: boolean; available: boolean;
   reason: string | null; files: number; bytes: number; skipped: number;
-  group?: string; recommended?: boolean; native_action?: 'empty_recycle_bin' | null
+  group?: string; recommended?: boolean; native_action?: string | null;
+  actions?: number; size_known?: boolean; analysis_error?: boolean
+}
+export interface CleanupActionResult {
+  category_id: string; title: string; status: 'completed' | 'failed' | 'skipped';
+  freed_bytes: number | null; detail: string | null
 }
 export interface CleanupResult {
-  removed: number; freed_bytes: number; skipped: number; failed: number; cancelled: boolean
+  removed: number; freed_bytes: number; skipped: number; failed: number; cancelled: boolean;
+  actions?: CleanupActionResult[]; actions_completed?: number; actions_failed?: number
 }
 export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
@@ -21,6 +27,7 @@ export interface CleanerApi {
   scan(): Promise<StateResponse>;
   cancel(): Promise<StateResponse>;
   clean(scanId: string, ids: string[]): Promise<StateResponse>;
+  open_search_settings(): Promise<StateResponse>;
   get_files(scanId: string, categoryId: string, offset: number): Promise<FilesResponse>;
 }
 declare global { interface Window { pywebview?: { api: CleanerApi } } }

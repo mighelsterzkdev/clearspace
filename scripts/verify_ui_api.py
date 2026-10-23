@@ -10,6 +10,7 @@ from clearspace.engine import Category, Cleaner
 from clearspace.gui import AssetServer, DesktopApi
 from clearspace.service import CleanerService
 from clearspace.recycle_bin import RecycleBinSnapshot
+from clearspace.maintenance import ActionSnapshot, ActionResult
 
 
 def main():
@@ -27,6 +28,19 @@ def main():
                 self.snapshot = RecycleBinSnapshot(0, 0)
 
         fake_bin = SandboxBin()
+        class SandboxAction:
+            def __init__(self, size):
+                self.size = size
+                self.calls = 0
+
+            def query(self):
+                return ActionSnapshot(self.calls == 0, self.size, "Owned verification action; no user data is changed.")
+
+            def clean(self, snapshot, cancel=None):
+                self.calls += 1
+                return ActionResult(True, None if self.size is None else 0, "Verification cleanup completed.")
+
+        native_actions = {"windows_components": SandboxAction(None), "run_history": SandboxAction(0)}
         categories = [Category("recycle_bin", "Recycle Bin", "Permanently empty deleted items from your Recycle Bin.", (), native_action="empty_recycle_bin")]
         for identifier, title, description, selected in (
             ("user_temp", "Temporary files", "Temporary files that can be removed now.", True),
@@ -39,6 +53,10 @@ def main():
             folder.mkdir()
             group = "Windows" if identifier == "user_temp" else "Developer tools" if identifier == "pip_cache" else "Browsers"
             categories.append(Category(identifier, title, description, (folder,), default_selected=selected, group=group))
+        categories.extend([
+            Category("windows_components", "Windows update cleanup", "Windows-managed cleanup.", (), group="System maintenance", native_action="windows_components"),
+            Category("run_history", "Run dialog history", "Saved Run commands.", (), group="History", native_action="run_history"),
+        ])
         samples = []
         for identifier in ("user_temp", "chrome_cache"):
             path = root / identifier / "old-cache.tmp"
@@ -49,9 +67,10 @@ def main():
         held.enter_context(recent.open("rb"))
         personal = root / "personal.txt"
         personal.write_bytes(b"preserve outside scope")
-        service = CleanerService(Cleaner(categories=categories, recycle_bin=fake_bin), root / "settings")
+        service = CleanerService(Cleaner(categories=categories, recycle_bin=fake_bin, native_actions=native_actions), root / "settings")
         api = DesktopApi(service)
         server = AssetServer()
+        settings_calls = 0
         allowed = {name: getattr(api, name) for name in ("get_state", "set_selection", "scan", "cancel", "clean", "get_files")}
         try:
             for line in sys.stdin:
@@ -60,7 +79,12 @@ def main():
                 if method == "asset_url":
                     result = server.url
                 elif method == "fixture_status":
-                    result = {"old_present": [path.exists() for path in samples], "recent_kept": recent.read_bytes() == b"preserve recent", "personal_kept": personal.read_bytes() == b"preserve outside scope", "bin_empty_calls": fake_bin.calls}
+                    result = {"old_present": [path.exists() for path in samples], "recent_kept": recent.read_bytes() == b"preserve recent", "personal_kept": personal.read_bytes() == b"preserve outside scope", "bin_empty_calls": fake_bin.calls,
+                              "action_calls": {key: value.calls for key, value in native_actions.items()}, "settings_calls": settings_calls}
+                elif method == "open_search_settings":
+                    # Headless verification never opens a visible Settings app.
+                    settings_calls += 1
+                    result = api.get_state()
                 elif method in allowed:
                     result = allowed[method](*request.get("args", []))
                 else:

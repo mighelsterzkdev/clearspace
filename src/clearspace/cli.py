@@ -55,14 +55,18 @@ def main(argv=None):
             print(f"{labels[category.category_id]}: {category.files} {unit}, {_size(category.bytes)}")
             if category.reason:
                 print(f"  {category.reason}")
+            if category.actions:
+                print("  Native cleanup ready; Windows manages the items and may not report a removable size.")
         print(f"\nTotal size: {_size(plan.total_bytes)} ({plan.total_files} items)")
+        if plan.total_actions:
+            print(f"Additional Windows/history cleanup actions: {plan.total_actions}")
         if args.command != "clean":
             print("Analysis only. No files were removed.")
             return 0
         if plan.cancelled or plan.truncated:
             print("Analysis was incomplete. No files were removed.", file=sys.stderr)
             return 1
-        if not plan.total_files:
+        if not plan.total_files and not plan.total_actions:
             print("No matching files to remove.")
             return 0
         if not sys.stdin.isatty():
@@ -72,6 +76,9 @@ def main(argv=None):
         if plan.recycle_bin and plan.recycle_bin.items:
             print("Windows will empty your current Recycle Bin. Newly deleted items may be included.")
             print("The native Recycle Bin operation cannot be stopped once it starts.")
+        if plan.total_actions:
+            print("Selected histories will be cleared. Original documents are kept.")
+            print("Windows system cleanup cannot be interrupted after it starts; exact removed sizes may be unavailable.")
         if input('Type "clean" to continue: ').strip() != "clean":
             print("Cleanup cancelled. No files were removed.")
             return 0
@@ -81,8 +88,10 @@ def main(argv=None):
         for issue in result.issues:
             if issue["path"] == "Recycle Bin":
                 print(issue["reason"])
+        for action in result.action_results:
+            print(f"{action['title']}: {action['status']}. {action['detail'] or ''}")
         print("Disk free space may differ from the size of deleted files.")
-        return 1 if result.failed_files else 0
+        return 1 if result.failed_files or any(item["status"] == "failed" for item in result.action_results) else 0
     except KeyboardInterrupt:
         cancel.set()
         print("\nOperation stopped. Any files already removed stay removed.", file=sys.stderr)
