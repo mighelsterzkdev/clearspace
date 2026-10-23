@@ -1,3 +1,5 @@
+import type { Category } from './types'
+
 const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
 export function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '0 B'
@@ -6,3 +8,5 @@ export function formatBytes(value: number): string {
   return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(amount)} ${sizes[unit]}`
 }
 export function countFiles(value: number): string { return `${value.toLocaleString('en-US')} ${value === 1 ? 'file' : 'files'}` }
+export function countItems(value: number): string { return `${value.toLocaleString('en-US')} ${value === 1 ? 'item' : 'items'}` }
+export function isRecycleBin(category: Category): boolean { return category.native_action === 'empty_recycle_bin' || category.id === 'recycle_bin' }

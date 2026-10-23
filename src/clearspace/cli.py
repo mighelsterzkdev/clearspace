@@ -51,10 +51,11 @@ def main(argv=None):
         print("CLEARSPACE\n")
         labels = {category.id: category.label for category in cleaner.categories}
         for category in plan.category_stats:
-            print(f"{labels[category.category_id]}: {category.files} files, {_size(category.bytes)}")
+            unit = "items" if category.category_id == "recycle_bin" else "files"
+            print(f"{labels[category.category_id]}: {category.files} {unit}, {_size(category.bytes)}")
             if category.reason:
                 print(f"  {category.reason}")
-        print(f"\nTotal file size: {_size(plan.total_bytes)} ({plan.total_files} files)")
+        print(f"\nTotal size: {_size(plan.total_bytes)} ({plan.total_files} items)")
         if args.command != "clean":
             print("Analysis only. No files were removed.")
             return 0
@@ -68,12 +69,18 @@ def main(argv=None):
             print("Cleanup requires an interactive terminal confirmation. No files were removed.", file=sys.stderr)
             return 1
         print("\nThe files above will be removed permanently.")
+        if plan.recycle_bin and plan.recycle_bin.items:
+            print("Windows will empty your current Recycle Bin. Newly deleted items may be included.")
+            print("The native Recycle Bin operation cannot be stopped once it starts.")
         if input('Type "clean" to continue: ').strip() != "clean":
             print("Cleanup cancelled. No files were removed.")
             return 0
         result = cleaner.clean(plan, selected, cancel=cancel)
-        print(f"\nRemoved: {result.deleted_files} files ({_size(result.freed_bytes)} of file data)")
+        print(f"\nRemoved: {result.deleted_files} items ({_size(result.freed_bytes)} of data)")
         print(f"Skipped: {result.skipped_files} | Failed: {result.failed_files}")
+        for issue in result.issues:
+            if issue["path"] == "Recycle Bin":
+                print(issue["reason"])
         print("Disk free space may differ from the size of deleted files.")
         return 1 if result.failed_files else 0
     except KeyboardInterrupt:

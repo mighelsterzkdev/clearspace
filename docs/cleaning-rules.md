@@ -8,6 +8,7 @@ All production categories have minimum age **0**. Existing file locks, permissio
 
 | Category | Specific scope |
 |---|---|
+| Recycle Bin (optional) | Current user's bins across drives; native Windows Shell action, no manual `$Recycle.Bin` traversal |
 | User temporary files | `LOCAL/Temp` |
 | Windows temporary files | `WINDOWS/Temp` |
 | Crash dumps | `LOCAL/CrashDumps`, only `*.dmp` |
@@ -28,6 +29,8 @@ All production categories have minimum age **0**. Existing file locks, permissio
 | NuGet | Default `NuGet/v3-cache` HTTP responses; never global installed packages |
 
 ## Research
+
+Recycle Bin totals come from [SHQueryRecycleBinW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shqueryrecyclebinw). Confirmed emptying uses [SHEmptyRecycleBinW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shemptyrecyclebinw). The scan records aggregate items and size; those are not file identities. Changed totals skip the native action, while matching totals allow Windows to empty its current contents. The confirmation discloses possible concurrent additions. Native cleanup cannot be stopped once it starts; result totals are bounded observed changes, not a physical disk-space measurement. Tests substitute a fake bin provider and never empty the real bin.
 
 Windows temporary files, reports, graphics caches, and log locations were cross-checked against [Winapp2's application definitions](https://github.com/MoscaDotTo/Winapp2/blob/master/Winapp2.ini). Those definitions also contain privacy and user-data rules that Clearspace does not implement.
 

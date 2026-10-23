@@ -1,5 +1,5 @@
 import { Check, CircleAlert } from 'lucide-react'
-import { countFiles, formatBytes } from '../format'
+import { countItems, formatBytes } from '../format'
 import type { CleanupResult as Result } from '../types'
 
 export function CleanupResult({ result }: { result: Result }) {
@@ -12,11 +12,11 @@ export function CleanupResult({ result }: { result: Result }) {
     <div>
       <h3 id="result-heading">{title}</h3>
       <p>
-        <strong>{formatBytes(result.freed_bytes)}</strong> removed · {countFiles(result.removed)}
+        <strong>{formatBytes(result.freed_bytes)}</strong> removed · {countItems(result.removed)}
         {result.skipped > 0 ? ` · ${result.skipped.toLocaleString('en-US')} skipped` : ''}
         {result.failed > 0 ? ` · ${result.failed.toLocaleString('en-US')} could not be removed` : ''}
       </p>
-      <span>Total size of deleted files. Disk free space may differ.</span>
+      <span>Total size of deleted items. Disk free space may differ.</span>
     </div>
   </section>
 }

@@ -75,6 +75,12 @@ class CatalogTests(unittest.TestCase):
         self.assertGreaterEqual(len(categories), 20)
         for category in categories.values():
             self.assertEqual(category.minimum_age_days, 0, category.id)
+            if category.id == "recycle_bin":
+                self.assertTrue(category.available)
+                self.assertFalse(category.default_selected)
+                self.assertEqual(category.native_action, "empty_recycle_bin")
+                self.assertEqual(category.roots, ())
+                continue
             self.assertFalse(category.available, category.id)
             self.assertTrue(category.reason, category.id)
             self.assertIn(category.group, {"Windows", "Browsers", "Applications", "Developer tools"})

@@ -9,12 +9,25 @@ import tempfile
 from clearspace.engine import Category, Cleaner
 from clearspace.gui import AssetServer, DesktopApi
 from clearspace.service import CleanerService
+from clearspace.recycle_bin import RecycleBinSnapshot
 
 
 def main():
     with tempfile.TemporaryDirectory(prefix="clearspace-ui-check-") as temporary, ExitStack() as held:
         root = Path(temporary)
-        categories = []
+        class SandboxBin:
+            snapshot = RecycleBinSnapshot(2, 256)
+            calls = 0
+
+            def query(self):
+                return self.snapshot
+
+            def empty(self):
+                self.calls += 1
+                self.snapshot = RecycleBinSnapshot(0, 0)
+
+        fake_bin = SandboxBin()
+        categories = [Category("recycle_bin", "Recycle Bin", "Permanently empty deleted items from your Recycle Bin.", (), native_action="empty_recycle_bin")]
         for identifier, title, description, selected in (
             ("user_temp", "Temporary files", "Temporary files that can be removed now.", True),
             ("chrome_cache", "Google Chrome", "Disk cache only. Close Chrome before cleaning.", False),
@@ -36,7 +49,7 @@ def main():
         held.enter_context(recent.open("rb"))
         personal = root / "personal.txt"
         personal.write_bytes(b"preserve outside scope")
-        service = CleanerService(Cleaner(categories=categories), root / "settings")
+        service = CleanerService(Cleaner(categories=categories, recycle_bin=fake_bin), root / "settings")
         api = DesktopApi(service)
         server = AssetServer()
         allowed = {name: getattr(api, name) for name in ("get_state", "set_selection", "scan", "cancel", "clean", "get_files")}
@@ -47,7 +60,7 @@ def main():
                 if method == "asset_url":
                     result = server.url
                 elif method == "fixture_status":
-                    result = {"old_present": [path.exists() for path in samples], "recent_kept": recent.read_bytes() == b"preserve recent", "personal_kept": personal.read_bytes() == b"preserve outside scope"}
+                    result = {"old_present": [path.exists() for path in samples], "recent_kept": recent.read_bytes() == b"preserve recent", "personal_kept": personal.read_bytes() == b"preserve outside scope", "bin_empty_calls": fake_bin.calls}
                 elif method in allowed:
                     result = allowed[method](*request.get("args", []))
                 else:

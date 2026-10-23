@@ -11,6 +11,7 @@ def verify_portable():
     from .engine import Category, Cleaner
     from .gui import ASSETS, DesktopApi
     from .service import CleanerService
+    from .recycle_bin import RecycleBinSnapshot
     import webview  # noqa: F401 - verify the packaged native host can import
 
     if os.name != "nt" or not (ASSETS / "index.html").is_file():
@@ -27,7 +28,22 @@ def verify_portable():
         held.enter_context(recent.open("rb"))
         personal = root / "personal.txt"
         personal.write_bytes(b"keep outside category")
-        cleaner = Cleaner(categories=[Category("user_temp", "Temporary files", "Test fixture only", (cache,), default_selected=True)])
+        class SandboxBin:
+            snapshot = RecycleBinSnapshot(2, 256)
+            calls = 0
+
+            def query(self):
+                return self.snapshot
+
+            def empty(self):
+                self.calls += 1
+                self.snapshot = RecycleBinSnapshot(0, 0)
+
+        fake_bin = SandboxBin()
+        cleaner = Cleaner(categories=[
+            Category("user_temp", "Temporary files", "Test fixture only", (cache,), default_selected=True),
+            Category("recycle_bin", "Recycle Bin", "Fake bin only", (), native_action="empty_recycle_bin"),
+        ], recycle_bin=fake_bin)
         service = CleanerService(cleaner, root / "state")
         api = DesktopApi(service)
         try:
@@ -49,5 +65,20 @@ def verify_portable():
             assert result["phase"] == "completed" and result["result"]["removed"] == 1
             assert not old.exists() and recent.read_bytes() == b"keep recent file"
             assert personal.read_bytes() == b"keep outside category"
+            assert fake_bin.calls == 0
+            assert api.set_selection(["recycle_bin"])["ok"]
+            assert api.scan()["ok"]
+            deadline = time.monotonic() + 10
+            while service.active() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            ready = api.get_state()["state"]
+            assert ready["phase"] == "ready" and fake_bin.calls == 0
+            assert api.clean(ready["scan_id"], ["recycle_bin"])["ok"]
+            deadline = time.monotonic() + 10
+            while service.active() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            result = api.get_state()["state"]
+            assert result["phase"] == "completed" and result["result"]["removed"] == 2
+            assert fake_bin.calls == 1
         finally:
             service.shutdown()

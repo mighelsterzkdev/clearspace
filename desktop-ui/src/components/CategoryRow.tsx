@@ -1,6 +1,6 @@
-import { AppWindow, Check, Eye, Files, Globe2, Package } from 'lucide-react'
+import { AppWindow, Check, Eye, Files, Globe2, Package, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
-import { countFiles, formatBytes } from '../format'
+import { countFiles, countItems, formatBytes, isRecycleBin } from '../format'
 import type { Category } from '../types'
 
 interface Props {
@@ -9,7 +9,8 @@ interface Props {
 }
 
 export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSelect, onDetails }: Props) {
-  const Icon = category.group === 'Developer tools' || category.id === 'pip_cache' ? Package
+  const recycleBin = isRecycleBin(category)
+  const Icon = recycleBin ? Trash2 : category.group === 'Developer tools' || category.id === 'pip_cache' ? Package
     : category.group === 'Applications' ? AppWindow
     : category.group === 'Browsers' || /^(chrome|edge|firefox)_/.test(category.id) ? Globe2 : Files
   const id = `category-${category.id}`
@@ -27,10 +28,10 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSe
     <div className="category-actions">
       <div className="category-metrics">
         <span>{analyzed && category.selected ? formatBytes(category.bytes) : '—'}</span>
-        <span>{!category.available ? 'Unavailable' : analyzed && category.selected ? countFiles(category.files) : category.selected ? 'Ready to analyze' : 'Not selected'}</span>
+        <span>{!category.available ? 'Unavailable' : analyzed && category.selected ? (recycleBin ? countItems(category.files) : countFiles(category.files)) : category.selected ? 'Ready to analyze' : 'Not selected'}</span>
       </div>
-      <Button variant="ghost" size="icon" aria-label={`View files for ${category.title}`} title="View files"
-        disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>
+      {recycleBin ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon" aria-label={`View files for ${category.title}`} title="View files"
+        disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>}
     </div>
   </li>
 }

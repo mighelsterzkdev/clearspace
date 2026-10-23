@@ -6,8 +6,9 @@ import type { CleanerApi, CleanerState, FilesResponse, StateResponse } from '../
 
 function initial(): CleanerState {
   return {
-    version: '0.2.0', phase: 'idle', scan_id: null, scanned_at: null,
+    version: '0.3.0', phase: 'idle', scan_id: null, scanned_at: null,
     categories: [
+      { id: 'recycle_bin', title: 'Recycle Bin', description: 'Deleted files and folders.', group: 'Windows', native_action: 'empty_recycle_bin', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'user_temp', title: 'Temporary files', description: 'User temporary files.', group: 'Windows', recommended: true, available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'chrome_cache', title: 'Chrome cache', description: 'Cached web content. Browser sign-ins are kept.', group: 'Browsers', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'edge_cache', title: 'Edge cache', description: 'Cached web content.', group: 'Browsers', recommended: false, available: false, selected: false, reason: 'Close Microsoft Edge to analyze this cache.', bytes: 0, files: 0, skipped: 0 },
@@ -60,7 +61,7 @@ describe('cleanup flow', () => {
     await connected()
     expect(screen.getByRole('checkbox', { name: /Temporary files/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Chrome cache/ })).not.toBeChecked()
-    expect(screen.queryByRole('checkbox', { name: /Edge cache/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Edge cache/ })).not.toBeVisible()
     expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
     expect(api.scan).not.toHaveBeenCalled()
     expect(api.clean).not.toHaveBeenCalled()
@@ -81,8 +82,8 @@ describe('cleanup flow', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Delete selected files' }))
     await waitFor(() => expect(api.clean).toHaveBeenCalledExactlyOnceWith('scan-1', ['user_temp']))
     expect(await screen.findByRole('heading', { name: 'Cleanup complete' })).toBeVisible()
-    expect(screen.getByText(/removed · 2 files · 1 skipped/)).toBeVisible()
-    expect(screen.getByText('Total size of deleted files. Disk free space may differ.')).toBeVisible()
+    expect(screen.getByText(/removed · 2 items · 1 skipped/)).toBeVisible()
+    expect(screen.getByText('Total size of deleted items. Disk free space may differ.')).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
@@ -163,7 +164,7 @@ describe('cleanup flow', () => {
     update({ phase: 'cancelled', result: { removed: 1, freed_bytes: 1024, skipped: 2, failed: 1, cancelled: true } })
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Cleanup stopped' })).toBeVisible()
-    expect(screen.getByText(/removed · 1 file · 2 skipped · 1 could not be removed/)).toBeVisible()
+    expect(screen.getByText(/removed · 1 item · 2 skipped · 1 could not be removed/)).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
@@ -208,103 +209,124 @@ describe('cleanup flow', () => {
   })
 })
 
-async function chooseGroup(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByRole('combobox', { name: 'Category group' }))
-  await user.click(screen.getByRole('option', { name }))
-}
+describe('simple category selection', () => {
+  it('shows available categories together without filter controls', async () => {
+    bridge()
+    render(<App />)
+    await connected()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select all' })).toBeEnabled()
+    expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Chrome cache' })).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Python package cache' })).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Discord cache' })).toBeVisible()
+    expect(screen.getByText('1 of 6 selected')).toBeVisible()
+  })
 
-describe('category filters and profiles', () => {
-  it('hides unavailable categories by default and reveals their reason on request', async () => {
+  it('keeps unavailable categories out of the way and reveals their reason on request', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
     render(<App />)
     await connected()
-    expect(screen.queryByRole('checkbox', { name: 'Edge cache' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('checkbox', { name: /Show unavailable/ }))
+    expect(screen.getByRole('checkbox', { name: 'Edge cache' })).not.toBeVisible()
+    await user.click(screen.getByText('Unavailable (2)'))
     expect(screen.getByRole('checkbox', { name: 'Edge cache' })).toBeDisabled()
     expect(screen.getByText('Close Microsoft Edge to analyze this cache.')).toBeVisible()
     expect(api.set_selection).not.toHaveBeenCalled()
   })
 
-  it('filters by group while preserving selected categories in other groups', async () => {
+  it('selects every available category across all groups, including the Recycle Bin', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
     render(<App />)
     await connected()
-    await chooseGroup(user, 'Browsers')
-    expect(screen.getByRole('checkbox', { name: 'Chrome cache' })).toBeVisible()
-    expect(screen.queryByRole('checkbox', { name: 'Temporary files' })).not.toBeInTheDocument()
-    expect(screen.getByText('1 selected category is hidden by filters')).toBeVisible()
-    expect(api.set_selection).not.toHaveBeenCalled()
-    await chooseGroup(user, 'All groups')
-    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    expect(api.set_selection).toHaveBeenCalledExactlyOnceWith(['recycle_bin', 'user_temp', 'chrome_cache', 'pip_cache', 'windows_logs', 'discord_cache'])
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Select all' })).toBeDisabled())
+    expect(screen.getByText('6 of 6 selected')).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Discord cache' })).toBeChecked()
+    expect(api.scan).not.toHaveBeenCalled()
+    expect(api.clean).not.toHaveBeenCalled()
   })
 
-  it('searches categories without changing the selected profile', async () => {
+  it('clears every selected category in one action', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
     render(<App />)
     await connected()
-    await user.type(screen.getByRole('textbox', { name: 'Search categories' }), 'package')
-    expect(screen.getByRole('checkbox', { name: 'Python package cache' })).toBeVisible()
-    expect(screen.queryByRole('checkbox', { name: 'Chrome cache' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Clear search' }))
-    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).toBeChecked()
-    expect(api.set_selection).not.toHaveBeenCalled()
-  })
-
-  it('selects recommended categories across every group even when filtered', async () => {
-    const user = userEvent.setup()
-    const { api } = bridge()
-    render(<App />)
-    await connected()
-    await chooseGroup(user, 'Browsers')
-    await user.click(screen.getByRole('button', { name: 'Select recommended' }))
-    expect(api.set_selection).toHaveBeenCalledExactlyOnceWith(['user_temp', 'pip_cache', 'windows_logs'])
-    expect(screen.getByRole('button', { name: 'Select recommended' })).toBeDisabled()
-    await chooseGroup(user, 'Developer tools')
-    expect(screen.getByRole('checkbox', { name: 'Python package cache' })).toBeChecked()
-  })
-
-  it('clears the whole selection including categories hidden by filters', async () => {
-    const user = userEvent.setup()
-    const { api } = bridge()
-    render(<App />)
-    await connected()
-    await chooseGroup(user, 'Applications')
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
     await user.click(screen.getByRole('button', { name: 'Clear selection' }))
-    expect(api.set_selection).toHaveBeenCalledExactlyOnceWith([])
-    expect(screen.getByRole('button', { name: 'Analyze' })).toBeDisabled()
-    await chooseGroup(user, 'Windows')
+    expect(api.set_selection).toHaveBeenLastCalledWith([])
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Analyze' })).toBeDisabled())
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Temporary files' })).not.toBeChecked()
   })
 
-  it('preserves a prepared scan while filtering and confirms all selected files', async () => {
+  it('invalidates a prepared scan after selecting all', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
     render(<App />)
     await connected()
     await user.click(screen.getByRole('button', { name: 'Analyze' }))
-    await chooseGroup(user, 'Browsers')
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument())
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+})
+
+describe('Recycle Bin cleanup', () => {
+  it('requires analysis and a specific native-bin confirmation before emptying', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    await api.set_selection(['recycle_bin'])
+    render(<App />)
+    await connected()
+    expect(api.clean).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    const row = screen.getByRole('checkbox', { name: 'Recycle Bin' }).closest('li')!
+    expect(within(row).getByText('3 items')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'View files for Recycle Bin' })).not.toBeInTheDocument()
+    expect(api.get_files).not.toHaveBeenCalled()
+    expect(api.clean).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Clean selected' }))
-    expect(within(screen.getByRole('dialog')).getByText('Temporary files')).toBeVisible()
-    expect(api.scan).toHaveBeenCalledOnce()
-    expect(api.set_selection).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: 'Remove 2 KiB?' })
+    expect(within(dialog).getByText('3 items from the selected categories will be permanently deleted.')).toBeVisible()
+    expect(within(dialog).getByText('Windows empties the Recycle Bin when you confirm. Newly deleted items may be included. This cannot be undone or stopped once started.')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: 'Delete selected items' }))
+    await waitFor(() => expect(api.clean).toHaveBeenCalledExactlyOnceWith('scan-1', ['recycle_bin']))
+  })
+
+  it('leaves the Recycle Bin untouched when confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    await api.set_selection(['recycle_bin'])
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(await screen.findByRole('button', { name: 'Clean selected' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(api.clean).not.toHaveBeenCalled()
   })
 
-  it('recovers from an empty filter and displays partial coverage details', async () => {
+  it('includes every selected category and the native-bin scope after Select all', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
     render(<App />)
     await connected()
-    await user.type(screen.getByRole('textbox', { name: 'Search categories' }), 'no such application')
-    expect(screen.getByText('No matching categories')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Show all categories' }))
-    expect(screen.getByRole('checkbox', { name: 'Edge cache' })).toBeDisabled()
-    expect(screen.getByText('Some cache folders could not be inspected.')).toBeVisible()
-    expect(api.set_selection).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(await screen.findByRole('button', { name: 'Clean selected' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('18 items from the selected categories will be permanently deleted.')).toBeVisible()
+    expect(within(dialog).getByText('Recycle Bin · Temporary files · Chrome cache · Python package cache · Windows diagnostic logs · Discord cache')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
   })
 })
 

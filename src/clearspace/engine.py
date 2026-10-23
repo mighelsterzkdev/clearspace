@@ -1,6 +1,6 @@
 """Snapshot-based cleanup of explicitly supported Windows cache locations.
 
-The production engine is Windows-only and never removes directories. A scan
+The file engine is Windows-only and never removes directories. A scan
 does not modify files. Cleanup accepts the exact in-memory plan created by this
 Cleaner, revalidates its directory/file identities and uses handle deletion.
 The file-size total is logical bytes removed, not a measurement of free disk
@@ -21,6 +21,7 @@ from typing import Callable, Iterable
 import uuid
 
 from . import windows
+from .recycle_bin import RecycleBinSnapshot, WindowsRecycleBin
 
 
 DAY = 24 * 60 * 60
@@ -46,10 +47,11 @@ class Category:
     exclude_patterns: tuple[str, ...] = ()
     group: str = "Windows"
     recursive: bool = True
+    native_action: str | None = None
 
     @property
     def available(self) -> bool:
-        return bool(self.roots) and self.reason is None
+        return bool(self.roots or self.native_action) and self.reason is None
 
     def to_dict(self) -> dict:
         return {
@@ -59,7 +61,7 @@ class Category:
             "locations": [str(path) for path in self.roots],
             "file_patterns": list(self.file_patterns),
             "exclude_patterns": list(self.exclude_patterns), "group": self.group,
-            "recursive": self.recursive,
+            "recursive": self.recursive, "native_action": self.native_action,
         }
 
 
@@ -102,14 +104,15 @@ class Plan:
     cancelled: bool
     truncated: bool
     skipped_files: int
+    recycle_bin: RecycleBinSnapshot | None = None
 
     @property
     def total_files(self) -> int:
-        return len(self.entries)
+        return len(self.entries) + (self.recycle_bin.items if self.recycle_bin else 0)
 
     @property
     def total_bytes(self) -> int:
-        return sum(entry.size for entry in self.entries)
+        return sum(entry.size for entry in self.entries) + (self.recycle_bin.bytes if self.recycle_bin else 0)
 
     def to_dict(self, include_entries: bool = False) -> dict:
         result = {
@@ -193,11 +196,15 @@ class Cleaner:
     def __init__(self, categories: Iterable[Category] | None = None,
                  process_provider: Callable[[], set[str]] | None = None, *,
                  max_files: int = MAX_FILES, max_visited: int = MAX_VISITED,
-                 max_depth: int = MAX_DEPTH, max_scan_seconds: float = MAX_SCAN_SECONDS):
+                 max_depth: int = MAX_DEPTH, max_scan_seconds: float = MAX_SCAN_SECONDS,
+                 recycle_bin=None):
         self.categories = tuple(discover_categories() if categories is None else categories)
         if len({item.id for item in self.categories}) != len(self.categories):
             raise ValueError("Category IDs must be unique.")
         for item in self.categories:
+            if item.native_action is not None and (
+                    item.id != "recycle_bin" or item.native_action != "empty_recycle_bin" or item.roots):
+                raise ValueError("Unsupported native cleanup action.")
             if not item.id or type(item.minimum_age_days) is not int or item.minimum_age_days < 0:
                 raise ValueError("Cleaning rule age limits must be nonnegative whole days.")
             if type(item.recursive) is not bool:
@@ -218,6 +225,7 @@ class Cleaner:
         self._max_scan_seconds = min(max_scan_seconds, MAX_SCAN_SECONDS)
         self._operation = threading.Lock()
         self._latest_plan: Plan | None = None
+        self._recycle_bin = recycle_bin if recycle_bin is not None else WindowsRecycleBin()
 
     def _selection(self, ids: Iterable[str]) -> tuple[Category, ...]:
         if isinstance(ids, (str, bytes)):
@@ -257,6 +265,7 @@ class Cleaner:
             visited = 0
             total_bytes = 0
             truncated = False
+            bin_snapshot = None
             seen_files: set[windows.FileIdentity] = set()
             seen_directories: set[windows.FileIdentity] = set()
             last_report = 0.0
@@ -267,7 +276,7 @@ class Cleaner:
                 if force or now - last_report >= 0.1:
                     last_report = now
                     _report(progress, {"phase": "scanning", "category_id": category_id,
-                                       "visited_files": visited, "found_files": len(entries),
+                                       "visited_files": visited, "found_files": len(entries) + (bin_snapshot.items if bin_snapshot else 0),
                                        "found_bytes": total_bytes, "processed_files": 0, "total_files": 0})
 
             def stop() -> bool:
@@ -289,6 +298,17 @@ class Cleaner:
                     reason = "Analysis stopped before this category was completed."
                 if reason:
                     stats.append(CategoryStats(category.id, reason=reason))
+                    report(category.id, True)
+                    continue
+
+                if category.native_action == "empty_recycle_bin":
+                    try:
+                        bin_snapshot = self._recycle_bin.query()
+                        current_files, current_bytes = bin_snapshot.items, bin_snapshot.bytes
+                        total_bytes += current_bytes
+                    except OSError:
+                        reason = "Windows could not read the Recycle Bin. Analyze again to retry."
+                    stats.append(CategoryStats(category.id, current_files, current_bytes, skipped, reason))
                     report(category.id, True)
                     continue
 
@@ -378,7 +398,7 @@ class Cleaner:
                 stats.append(CategoryStats(category.id, current_files, current_bytes, skipped, reason))
                 report(category.id, True)
             plan = Plan(uuid.uuid4().hex, created, created + PLAN_LIFETIME, tuple(entries),
-                        tuple(stats), _cancelled(cancel), truncated, sum(item.skipped for item in stats))
+                        tuple(stats), _cancelled(cancel), truncated, sum(item.skipped for item in stats), bin_snapshot)
             self._latest_plan = plan
             report(None, True)
             return plan
@@ -404,6 +424,8 @@ class Cleaner:
             self._latest_plan = None
             selected = {category.id: category for category in categories}
             entries = tuple(entry for entry in plan.entries if entry.category_id in selected)
+            bin_snapshot = plan.recycle_bin if "recycle_bin" in selected else None
+            total_items = len(entries) + (bin_snapshot.items if bin_snapshot else 0)
             outcomes = {category.id: {"deleted_files": 0, "freed_bytes": 0,
                                       "skipped_files": 0, "failed_files": 0}
                         for category in categories}
@@ -424,7 +446,7 @@ class Cleaner:
                     _report(progress, {"phase": "cleaning", "category_id": category_id,
                                        "visited_files": 0, "found_files": plan.total_files,
                                        "found_bytes": plan.total_bytes, "processed_files": processed,
-                                       "total_files": len(entries)})
+                                       "total_files": total_items})
 
             report(None, True)
             for index, entry in enumerate(entries):
@@ -463,6 +485,42 @@ class Cleaner:
                         issue(entry, "Windows could not remove this file; kept.", failed=True)
                 processed += 1
                 report(entry.category_id)
+            if bin_snapshot and bin_snapshot.items:
+                outcome = outcomes["recycle_bin"]
+                bin_issue = None
+                try:
+                    if _cancelled(cancel):
+                        outcome["skipped_files"] = bin_snapshot.items
+                    else:
+                        current = self._recycle_bin.query()
+                        if current != bin_snapshot:
+                            outcome["skipped_files"] = bin_snapshot.items
+                            bin_issue = "The Recycle Bin changed since analysis. Analyze again before emptying it."
+                        elif _cancelled(cancel):
+                            outcome["skipped_files"] = bin_snapshot.items
+                        else:
+                            # This is a whole-bin Windows action, not per-file
+                            # snapshot deletion. The confirmation explains that
+                            # concurrent additions can be included by Windows.
+                            native_error = False
+                            try:
+                                self._recycle_bin.empty()
+                            except OSError:
+                                native_error = True
+                            remaining = self._recycle_bin.query()
+                            outcome["deleted_files"] = max(0, bin_snapshot.items - remaining.items)
+                            outcome["freed_bytes"] = max(0, bin_snapshot.bytes - remaining.bytes)
+                            remaining_count = min(bin_snapshot.items, remaining.items)
+                            outcome["failed_files" if native_error else "skipped_files"] = remaining_count
+                            if remaining.items:
+                                bin_issue = "Some Recycle Bin items remain. Analyze again to check them."
+                except OSError:
+                    outcome["failed_files"] = bin_snapshot.items
+                    bin_issue = "Windows could not verify that the Recycle Bin was emptied. Analyze again to check its contents."
+                if bin_issue:
+                    issues.append({"path": "Recycle Bin", "reason": bin_issue})
+                processed += bin_snapshot.items
+                report("recycle_bin", True)
             result = Result(
                 sum(item["deleted_files"] for item in outcomes.values()),
                 sum(item["freed_bytes"] for item in outcomes.values()),

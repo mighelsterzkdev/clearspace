@@ -82,6 +82,7 @@ class CleanerService:
                 "id": category.id, "title": category.label, "description": category.description,
                 "selected": category.id in self._selected, "available": category.available,
                 "group": getattr(category, "group", "Windows"), "recommended": category.default_selected,
+                "native_action": getattr(category, "native_action", None),
                 "reason": (found.reason if found and found.reason else category.reason),
                 "files": found.files if found else 0, "bytes": found.bytes if found else 0,
                 "skipped": found.skipped if found else 0,
@@ -173,7 +174,7 @@ class CleanerService:
                 raise ServiceError("Analyze the selected categories again before cleaning.")
             if selected != self._selected or not selected:
                 raise ServiceError("Your selection changed. Analyze it again before cleaning.")
-            if not any(item.category_id in selected for item in self._plan.entries):
+            if not any(item.files for item in self._plan.category_stats if item.category_id in selected):
                 raise ServiceError("There are no matching files to clean.")
             plan = self._plan
             self._cancel = threading.Event()
@@ -185,7 +186,9 @@ class CleanerService:
                     summary = {"removed": result.deleted_files, "freed_bytes": result.freed_bytes,
                                "skipped": result.skipped_files, "failed": result.failed_files, "cancelled": result.cancelled}
                     with self._lock:
-                        self._state.update(phase="cancelled" if result.cancelled else "completed", result=summary)
+                        bin_notes = [item["reason"] for item in getattr(result, "issues", ()) if item["path"] == "Recycle Bin"]
+                        self._state.update(phase="cancelled" if result.cancelled else "completed", result=summary,
+                                           error=" ".join(bin_notes) or None)
                         try:
                             self._write_json("last-cleanup.json", {"version": 1, "completed_at": datetime.now(timezone.utc).isoformat(), "categories": sorted(selected), "result": summary})
                         except OSError:
@@ -212,6 +215,8 @@ class CleanerService:
             if (not isinstance(scan_id, str) or self._plan is None or scan_id != self._plan.id
                     or category_id not in self._categories or type(offset) is not int or offset < 0):
                 raise ServiceError("This file list is no longer available. Analyze again.")
+            if getattr(self._categories[category_id], "native_action", None):
+                raise ServiceError("Windows provides a Recycle Bin item count, not a file preview.")
             entries = [entry for entry in self._plan.entries if entry.category_id == category_id]
             if offset > len(entries):
                 raise ServiceError("This page is no longer available.")

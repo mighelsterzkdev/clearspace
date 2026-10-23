@@ -54,6 +54,10 @@ def discover_categories(locations=None):
             file_patterns=tuple(patterns), recursive=recursive, group=group,
         ))
 
+    categories.insert(0, Category(
+        "recycle_bin", "Recycle Bin", "Permanently empty deleted items from your Recycle Bin.", (),
+        native_action="empty_recycle_bin",
+    ))
     add("user_temp", "Temporary files", "Temporary files that can be removed now.", [local / "Temp"], recommended=True)
     add("windows_temp", "Windows temporary files", "System temporary files. Protected or locked files are skipped.", [win / "Temp"], recommended=True)
     add("crash_dumps", "Crash dumps", "Diagnostic memory dumps left by crashed applications.", [local / "CrashDumps"], patterns=("*.dmp",), recommended=True)

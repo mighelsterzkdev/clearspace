@@ -2,7 +2,7 @@ export type Phase = 'idle' | 'scanning' | 'ready' | 'cleaning' | 'completed' | '
 export interface Category {
   id: string; title: string; description: string; selected: boolean; available: boolean;
   reason: string | null; files: number; bytes: number; skipped: number;
-  group?: string; recommended?: boolean
+  group?: string; recommended?: boolean; native_action?: 'empty_recycle_bin' | null
 }
 export interface CleanupResult {
   removed: number; freed_bytes: number; skipped: number; failed: number; cancelled: boolean
