@@ -50,7 +50,13 @@ class CleanerService:
             values = value.get("selected") if isinstance(value, dict) else None
             if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
                 return set(defaults)
-            return {item for item in values if item in self._categories and self._categories[item].available}
+            selected = {item for item in values if item in self._categories and self._categories[item].available}
+            if value.get("version", 1) == 1:
+                # Preserve existing choices while introducing the new recommended
+                # Windows cleanup categories to users of the five-category MVP.
+                legacy = {"user_temp", "chrome_cache", "edge_cache", "firefox_cache", "pip_cache"}
+                selected.update(set(defaults) - legacy)
+            return selected
         except (OSError, ValueError):
             return set(defaults)
 
@@ -75,6 +81,7 @@ class CleanerService:
             rows.append({
                 "id": category.id, "title": category.label, "description": category.description,
                 "selected": category.id in self._selected, "available": category.available,
+                "group": getattr(category, "group", "Windows"), "recommended": category.default_selected,
                 "reason": (found.reason if found and found.reason else category.reason),
                 "files": found.files if found else 0, "bytes": found.bytes if found else 0,
                 "skipped": found.skipped if found else 0,
@@ -111,7 +118,7 @@ class CleanerService:
             self._state.update(phase="idle", scan_id=None, scanned_at=None, progress=self._empty_progress(), result=None, error=None)
             self._refresh_categories()
             try:
-                self._write_json("settings.json", {"version": 1, "selected": sorted(selected)})
+                self._write_json("settings.json", {"version": 2, "selected": sorted(selected)})
             except OSError:
                 self._state["error"] = "Your selection is ready, but preferences could not be saved."
             return self.get_state()

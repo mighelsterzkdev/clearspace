@@ -89,12 +89,14 @@ def main():
         "Extract the complete folder, then open start.cmd or clearspace.exe.\n"
         "Python and Node.js are not required. Microsoft Edge WebView2 Runtime must be installed.\n"
         "Analyze first, inspect the file list, then confirm Clean selected. Cleanup never starts automatically.\n"
-        "Only supported temporary files and disk caches older than seven days are eligible.\n"
+        "22 categories cover supported temporary files, crash reports, logs, shaders, browsers and application caches.\n"
+        "There is no minimum file-age restriction. Recent files can be selected too.\n"
         "Files are permanently removed. Files in use, changed files, and filesystem links are skipped.\n"
         "Your personal Downloads/documents, browser sign-ins, Recycle Bin, and registry are outside the cleaner's scope.\n"
         "Displayed sizes are file data; physical free disk space may differ.\n"
         "Settings and the latest cleanup summary are stored in your LocalAppData/Clearspace folder.\n"
-        "No administrator access is requested. This application is unsigned.\n"
+        "Protected locations may need Run as administrator; the app never elevates automatically.\n"
+        "This application is unsigned.\n"
         "Third-party notices are in licenses/.\n", encoding="utf-8")
     write_notices(bundle)
     with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED) as package:

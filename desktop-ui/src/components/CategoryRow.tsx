@@ -1,4 +1,4 @@
-import { Check, Eye, Files, Globe2, Package } from 'lucide-react'
+import { AppWindow, Check, Eye, Files, Globe2, Package } from 'lucide-react'
 import { Button } from './ui/button'
 import { countFiles, formatBytes } from '../format'
 import type { Category } from '../types'
@@ -9,7 +9,9 @@ interface Props {
 }
 
 export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSelect, onDetails }: Props) {
-  const Icon = category.id === 'user_temp' ? Files : category.id === 'pip_cache' ? Package : Globe2
+  const Icon = category.group === 'Developer tools' || category.id === 'pip_cache' ? Package
+    : category.group === 'Applications' ? AppWindow
+    : category.group === 'Browsers' || /^(chrome|edge|firefox)_/.test(category.id) ? Globe2 : Files
   const id = `category-${category.id}`
   return <li className={`category-row ${category.available ? '' : 'category-unavailable'}`}>
     <span className="category-checkbox">

@@ -34,8 +34,22 @@
   .section-heading h2 { @apply text-base font-semibold; }
   .section-heading p { @apply mt-1 text-sm leading-6 text-muted-foreground; }
   .section-heading > button { @apply shrink-0; }
+  .category-toolbar { @apply sticky -top-4 z-10 -mx-1 mb-3 space-y-2 bg-background px-1 pb-2 pt-1; }
+  .category-filters { @apply flex min-w-0 items-center gap-3; }
+  .group-filter { @apply shrink-0; }
+  .category-search { @apply relative min-w-0 flex-1; }
+  .category-search > svg { @apply pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground; }
+  .category-search input { @apply pl-10 pr-10; }
+  .category-search > button { @apply absolute right-1 top-1 h-8 w-8; }
+  .selection-tools { @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-1; }
+  .selection-tools > div { @apply -mr-3 flex items-center; }
+  .unavailable-toggle { @apply flex cursor-pointer items-center gap-2 text-sm text-muted-foreground; }
   .categories-heading { @apply mb-2 flex justify-between pr-16 text-sm text-muted-foreground; }
-  .category-list { @apply overflow-hidden rounded-md border; }
+  .category-list { @apply overflow-hidden rounded-md border empty:hidden; }
+  .category-empty { @apply rounded-md border px-4 py-6; }
+  .category-empty p { @apply text-base font-medium; }
+  .category-empty > span { @apply mt-1 block text-sm leading-6 text-muted-foreground; }
+  .category-empty button { @apply mt-4; }
   .category-row { @apply grid min-h-[72px] grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-4 border-b px-4 py-3 last:border-b-0; }
   .category-icon { @apply size-5 text-muted-foreground; }
   .category-copy { @apply min-w-0 cursor-pointer; }
@@ -105,6 +119,7 @@
   .category-row { grid-template-columns: 20px minmax(0, 1fr); gap: 8px 12px; }
   .category-icon { display: none; }
   .category-actions { grid-column: 2; justify-content: space-between; }
+  .category-toolbar { top: -20px; }
   .category-metrics { display: flex; align-items: baseline; gap: 8px; text-align: left; }
   .categories-heading { padding-right: 0; }
   .categories-heading > span:last-child { display: none; }

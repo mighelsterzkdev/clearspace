@@ -1,28 +1,10 @@
 """Release smoke test: only its own newly created sandbox can be modified."""
 
-from ctypes import wintypes
-import ctypes
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import tempfile
 import time
-
-
-def _backdate_fixture(path):
-    """Backdate creation and modification timestamps on a self-owned test file."""
-    from .windows import _kernel32
-    api = _kernel32()
-    api.SetFileTime.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-    api.SetFileTime.restype = wintypes.BOOL
-    handle = api.CreateFileW(str(path), 0x100, 7, None, 3, 0, None)
-    if handle == ctypes.c_void_p(-1).value:
-        raise ctypes.WinError(ctypes.get_last_error())
-    timestamp = ctypes.c_ulonglong(int((time.time() - 10 * 86400 + 11644473600) * 10_000_000))
-    try:
-        if not api.SetFileTime(handle, ctypes.byref(timestamp), None, ctypes.byref(timestamp)):
-            raise ctypes.WinError(ctypes.get_last_error())
-    finally:
-        api.CloseHandle(handle)
 
 
 def verify_portable():
@@ -33,15 +15,16 @@ def verify_portable():
 
     if os.name != "nt" or not (ASSETS / "index.html").is_file():
         raise RuntimeError("Portable runtime or renderer is missing.")
-    with tempfile.TemporaryDirectory(prefix="clearspace-portable-check-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="clearspace-portable-check-") as temporary, ExitStack() as held:
         root = Path(temporary)
         cache = root / "supported-cache"
         cache.mkdir()
         old = cache / "old.tmp"
         old.write_bytes(b"clearspace-owned-test-data")
-        _backdate_fixture(old)
         recent = cache / "recent.tmp"
         recent.write_bytes(b"keep recent file")
+        # Recent files are eligible; this one is kept because it is in use.
+        held.enter_context(recent.open("rb"))
         personal = root / "personal.txt"
         personal.write_bytes(b"keep outside category")
         cleaner = Cleaner(categories=[Category("user_temp", "Temporary files", "Test fixture only", (cache,), default_selected=True)])

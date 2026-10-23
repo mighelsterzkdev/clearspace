@@ -25,7 +25,7 @@ def main(argv=None):
     subparsers = parser.add_subparsers(dest="command")
     for name in ("scan", "clean"):
         command = subparsers.add_parser(name, help="Analyze without deleting files" if name == "scan" else "Analyze, review, and explicitly confirm cleanup")
-        command.add_argument("--categories", nargs="+", default=["user_temp"], metavar="ID", help="user_temp chrome_cache edge_cache firefox_cache pip_cache")
+        command.add_argument("--categories", nargs="+", default=None, metavar="ID", help="Supported category IDs; defaults to the recommended available categories. Run categories to list all IDs.")
         if name == "scan":
             command.add_argument("--json", action="store_true", help="Print the scan summary as JSON")
     subparsers.add_parser("categories", help="List supported categories and their availability")
@@ -41,9 +41,10 @@ def main(argv=None):
         for category in cleaner.categories:
             print(f"{category.id:16} {category.label} ({'available' if category.available else category.reason or 'not found'})")
         return 0
+    selected = args.categories if args.categories is not None else [category.id for category in cleaner.categories if category.available and category.default_selected]
     cancel = threading.Event()
     try:
-        plan = cleaner.scan(args.categories, cancel=cancel)
+        plan = cleaner.scan(selected, cancel=cancel)
         if args.command == "scan" and args.json:
             print(json.dumps(plan.to_dict(), indent=2, ensure_ascii=True))
             return 0
@@ -70,7 +71,7 @@ def main(argv=None):
         if input('Type "clean" to continue: ').strip() != "clean":
             print("Cleanup cancelled. No files were removed.")
             return 0
-        result = cleaner.clean(plan, args.categories, cancel=cancel)
+        result = cleaner.clean(plan, selected, cancel=cancel)
         print(f"\nRemoved: {result.deleted_files} files ({_size(result.freed_bytes)} of file data)")
         print(f"Skipped: {result.skipped_files} | Failed: {result.failed_files}")
         print("Disk free space may differ from the size of deleted files.")

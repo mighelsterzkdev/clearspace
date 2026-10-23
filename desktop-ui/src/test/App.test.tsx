@@ -6,13 +6,15 @@ import type { CleanerApi, CleanerState, FilesResponse, StateResponse } from '../
 
 function initial(): CleanerState {
   return {
-    version: '0.1.0', phase: 'idle', scan_id: null, scanned_at: null,
+    version: '0.2.0', phase: 'idle', scan_id: null, scanned_at: null,
     categories: [
-      { id: 'user_temp', title: 'Temporary files', description: 'User temporary files older than 7 days.', available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
-      { id: 'chrome_cache', title: 'Chrome cache', description: 'Cached web content. Browser sign-ins are kept.', available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
-      { id: 'edge_cache', title: 'Edge cache', description: 'Cached web content.', available: false, selected: false, reason: 'Close Microsoft Edge to analyze this cache.', bytes: 0, files: 0, skipped: 0 },
-      { id: 'firefox_cache', title: 'Firefox cache', description: 'Cached web content.', available: false, selected: false, reason: 'Not installed.', bytes: 0, files: 0, skipped: 0 },
-      { id: 'pip_cache', title: 'Python package cache', description: 'Cached package downloads older than 7 days.', available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
+      { id: 'user_temp', title: 'Temporary files', description: 'User temporary files.', group: 'Windows', recommended: true, available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
+      { id: 'chrome_cache', title: 'Chrome cache', description: 'Cached web content. Browser sign-ins are kept.', group: 'Browsers', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
+      { id: 'edge_cache', title: 'Edge cache', description: 'Cached web content.', group: 'Browsers', recommended: false, available: false, selected: false, reason: 'Close Microsoft Edge to analyze this cache.', bytes: 0, files: 0, skipped: 0 },
+      { id: 'firefox_cache', title: 'Firefox cache', description: 'Cached web content.', group: 'Browsers', recommended: false, available: false, selected: false, reason: 'Not installed.', bytes: 0, files: 0, skipped: 0 },
+      { id: 'pip_cache', title: 'Python package cache', description: 'Cached package downloads.', group: 'Developer tools', recommended: true, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
+      { id: 'windows_logs', title: 'Windows diagnostic logs', description: 'Application diagnostic reports.', group: 'Windows', recommended: true, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
+      { id: 'discord_cache', title: 'Discord cache', description: 'Cached application files.', group: 'Applications', recommended: false, available: true, selected: false, reason: 'Some cache folders could not be inspected.', bytes: 0, files: 0, skipped: 0 },
     ],
     progress: { checked: 0, files: 0, bytes: 0, current: null }, result: null, error: null,
   }
@@ -58,8 +60,8 @@ describe('cleanup flow', () => {
     await connected()
     expect(screen.getByRole('checkbox', { name: /Temporary files/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Chrome cache/ })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /Edge cache/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.queryByRole('checkbox', { name: /Edge cache/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
     expect(api.scan).not.toHaveBeenCalled()
     expect(api.clean).not.toHaveBeenCalled()
   })
@@ -81,7 +83,7 @@ describe('cleanup flow', () => {
     expect(await screen.findByRole('heading', { name: 'Cleanup complete' })).toBeVisible()
     expect(screen.getByText(/removed · 2 files · 1 skipped/)).toBeVisible()
     expect(screen.getByText('Total size of deleted files. Disk free space may differ.')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
   it('cancels the confirmation with Escape without deleting files', async () => {
@@ -106,7 +108,7 @@ describe('cleanup flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
     await user.click(screen.getByRole('checkbox', { name: /Chrome cache/ }))
     expect(api.set_selection).toHaveBeenCalledExactlyOnceWith(['user_temp', 'chrome_cache'])
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'View files for Temporary files' })).toBeDisabled()
     expect(api.clean).not.toHaveBeenCalled()
   })
@@ -142,7 +144,7 @@ describe('cleanup flow', () => {
     await user.click(await screen.findByRole('button', { name: 'Stop' }))
     expect(api.cancel).toHaveBeenCalledOnce()
     expect(await screen.findByText('Analysis stopped. Run Analyze again to prepare a complete file list.')).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
   it('shows an empty analysis without enabling deletion', async () => {
@@ -162,7 +164,7 @@ describe('cleanup flow', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Cleanup stopped' })).toBeVisible()
     expect(screen.getByText(/removed · 1 file · 2 skipped · 1 could not be removed/)).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
   it('shows readable action errors and allows another analysis', async () => {
@@ -203,6 +205,106 @@ describe('cleanup flow', () => {
     await act(async () => { resolvePoll!(snapshot()) })
     await waitFor(() => expect(api.set_selection).toHaveBeenCalledExactlyOnceWith(['user_temp', 'chrome_cache']))
     expect(screen.getByRole('checkbox', { name: /Chrome cache/ })).toBeChecked()
+  })
+})
+
+async function chooseGroup(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole('combobox', { name: 'Category group' }))
+  await user.click(screen.getByRole('option', { name }))
+}
+
+describe('category filters and profiles', () => {
+  it('hides unavailable categories by default and reveals their reason on request', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    expect(screen.queryByRole('checkbox', { name: 'Edge cache' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /Show unavailable/ }))
+    expect(screen.getByRole('checkbox', { name: 'Edge cache' })).toBeDisabled()
+    expect(screen.getByText('Close Microsoft Edge to analyze this cache.')).toBeVisible()
+    expect(api.set_selection).not.toHaveBeenCalled()
+  })
+
+  it('filters by group while preserving selected categories in other groups', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await chooseGroup(user, 'Browsers')
+    expect(screen.getByRole('checkbox', { name: 'Chrome cache' })).toBeVisible()
+    expect(screen.queryByRole('checkbox', { name: 'Temporary files' })).not.toBeInTheDocument()
+    expect(screen.getByText('1 selected category is hidden by filters')).toBeVisible()
+    expect(api.set_selection).not.toHaveBeenCalled()
+    await chooseGroup(user, 'All groups')
+    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).toBeChecked()
+  })
+
+  it('searches categories without changing the selected profile', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await user.type(screen.getByRole('textbox', { name: 'Search categories' }), 'package')
+    expect(screen.getByRole('checkbox', { name: 'Python package cache' })).toBeVisible()
+    expect(screen.queryByRole('checkbox', { name: 'Chrome cache' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).toBeChecked()
+    expect(api.set_selection).not.toHaveBeenCalled()
+  })
+
+  it('selects recommended categories across every group even when filtered', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await chooseGroup(user, 'Browsers')
+    await user.click(screen.getByRole('button', { name: 'Select recommended' }))
+    expect(api.set_selection).toHaveBeenCalledExactlyOnceWith(['user_temp', 'pip_cache', 'windows_logs'])
+    expect(screen.getByRole('button', { name: 'Select recommended' })).toBeDisabled()
+    await chooseGroup(user, 'Developer tools')
+    expect(screen.getByRole('checkbox', { name: 'Python package cache' })).toBeChecked()
+  })
+
+  it('clears the whole selection including categories hidden by filters', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await chooseGroup(user, 'Applications')
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }))
+    expect(api.set_selection).toHaveBeenCalledExactlyOnceWith([])
+    expect(screen.getByRole('button', { name: 'Analyze' })).toBeDisabled()
+    await chooseGroup(user, 'Windows')
+    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).not.toBeChecked()
+  })
+
+  it('preserves a prepared scan while filtering and confirms all selected files', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await chooseGroup(user, 'Browsers')
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    expect(within(screen.getByRole('dialog')).getByText('Temporary files')).toBeVisible()
+    expect(api.scan).toHaveBeenCalledOnce()
+    expect(api.set_selection).not.toHaveBeenCalled()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('recovers from an empty filter and displays partial coverage details', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await user.type(screen.getByRole('textbox', { name: 'Search categories' }), 'no such application')
+    expect(screen.getByText('No matching categories')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Show all categories' }))
+    expect(screen.getByRole('checkbox', { name: 'Edge cache' })).toBeDisabled()
+    expect(screen.getByText('Some cache folders could not be inspected.')).toBeVisible()
+    expect(api.set_selection).not.toHaveBeenCalled()
   })
 })
 

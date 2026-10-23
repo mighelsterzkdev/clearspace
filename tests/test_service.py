@@ -13,7 +13,7 @@ from clearspace.service import CleanerService, ServiceError
 class ControlledCleaner:
     def __init__(self, *, blocked=False, truncated=False):
         self.categories = (
-            SimpleNamespace(id="user_temp", label="Temporary files", description="Older than seven days", available=True, reason=None, default_selected=True),
+            SimpleNamespace(id="user_temp", label="Temporary files", description="Temporary files", available=True, reason=None, default_selected=True),
             SimpleNamespace(id="pip_cache", label="pip cache", description="HTTP cache", available=True, reason=None, default_selected=False),
         )
         self.started = threading.Event()
@@ -91,7 +91,7 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             service.clean("scan-token", ["pip_cache"])
         stored = json.loads((self.data_dir / "settings.json").read_text())
-        self.assertEqual(stored, {"version": 1, "selected": ["pip_cache"]})
+        self.assertEqual(stored, {"version": 2, "selected": ["pip_cache"]})
         restored = self.service().get_state()
         self.assertEqual([row["id"] for row in restored["categories"] if row["selected"]], ["pip_cache"])
 
@@ -144,6 +144,17 @@ class ServiceTests(unittest.TestCase):
         state = service.get_state()
         state["categories"][0]["selected"] = False
         self.assertTrue(service.get_state()["categories"][0]["selected"])
+
+    def test_mvp_preferences_gain_new_windows_recommendations_once(self):
+        (self.data_dir / "settings.json").write_text(json.dumps({"version": 1, "selected": ["pip_cache"]}))
+        cleaner = ControlledCleaner()
+        cleaner.categories += (SimpleNamespace(id="windows_temp", label="Windows temporary files", description="System temporary files", available=True, reason=None, default_selected=True),)
+        service = self.service(cleaner)
+        selected = {row["id"] for row in service.get_state()["categories"] if row["selected"]}
+        self.assertEqual(selected, {"pip_cache", "windows_temp"})
+        service.set_selection([])
+        restored = self.service(cleaner)
+        self.assertFalse(any(row["selected"] for row in restored.get_state()["categories"]))
 
 
 class LocalRendererTests(unittest.TestCase):

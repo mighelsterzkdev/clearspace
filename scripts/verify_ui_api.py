@@ -1,22 +1,22 @@
 """JSON-lines bridge for headless UI verification, exclusively in its own sandbox."""
 
 from pathlib import Path
+from contextlib import ExitStack
 import json
 import sys
 import tempfile
 
-from clearspace.diagnostics import _backdate_fixture
 from clearspace.engine import Category, Cleaner
 from clearspace.gui import AssetServer, DesktopApi
 from clearspace.service import CleanerService
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="clearspace-ui-check-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="clearspace-ui-check-") as temporary, ExitStack() as held:
         root = Path(temporary)
         categories = []
         for identifier, title, description, selected in (
-            ("user_temp", "Temporary files", "Temporary files older than 7 days.", True),
+            ("user_temp", "Temporary files", "Temporary files that can be removed now.", True),
             ("chrome_cache", "Google Chrome", "Disk cache only. Close Chrome before cleaning.", False),
             ("edge_cache", "Microsoft Edge", "Disk cache only. Close Edge before cleaning.", False),
             ("firefox_cache", "Mozilla Firefox", "Disk cache only. Close Firefox before cleaning.", False),
@@ -24,15 +24,16 @@ def main():
         ):
             folder = root / identifier
             folder.mkdir()
-            categories.append(Category(identifier, title, description, (folder,), default_selected=selected))
+            group = "Windows" if identifier == "user_temp" else "Developer tools" if identifier == "pip_cache" else "Browsers"
+            categories.append(Category(identifier, title, description, (folder,), default_selected=selected, group=group))
         samples = []
         for identifier in ("user_temp", "chrome_cache"):
             path = root / identifier / "old-cache.tmp"
             path.write_bytes(b"clearspace-owned-ui-test" * 512)
-            _backdate_fixture(path)
             samples.append(path)
         recent = root / "user_temp/recent.tmp"
         recent.write_bytes(b"preserve recent")
+        held.enter_context(recent.open("rb"))
         personal = root / "personal.txt"
         personal.write_bytes(b"preserve outside scope")
         service = CleanerService(Cleaner(categories=categories), root / "settings")

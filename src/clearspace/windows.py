@@ -1,10 +1,11 @@
 """Small, fail-closed Windows API layer used by the cleanup engine.
 
-Every directory from the drive root is opened without data-write/delete sharing.
-These handles stay open while resolving descendants, preventing ancestor
-renames. Each opened component and final file must also match its normalized
-expected path. Reparse points are excluded. A deletion uses the validated
-*file handle*, never unlink.
+Every directory from the drive root is opened without delete sharing. These
+handles stay open while resolving descendants, preventing ancestor renames.
+Each opened component and final file must also match its normalized expected
+path. Reparse points are excluded. Read-only analysis allows other readers and
+writers; deletion opens a separate exclusive file handle and revalidates its
+snapshot. A deletion uses the validated *file handle*, never unlink.
 
 API references:
 https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew
@@ -12,6 +13,8 @@ https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfilein
 https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew
 https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info
 https://learn.microsoft.com/en-us/windows/win32/shell/known-folders
+https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
+https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getwindowsdirectoryw
 """
 
 from __future__ import annotations
@@ -28,11 +31,14 @@ import uuid
 
 
 FILE_ATTRIBUTE_DIRECTORY = 0x10
+FILE_ATTRIBUTE_READONLY = 0x1
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 FILE_READ_DATA = 0x1  # The same access bit means FILE_LIST_DIRECTORY on a directory.
 FILE_READ_ATTRIBUTES = 0x80
 DELETE = 0x10000
 FILE_SHARE_READ = 0x1
+FILE_SHARE_WRITE = 0x2
+FILE_SHARE_DELETE = 0x4
 FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
 FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
 OPEN_EXISTING = 3
@@ -126,6 +132,8 @@ def _kernel32():
     api.Process32FirstW.restype = wintypes.BOOL
     api.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
     api.Process32NextW.restype = wintypes.BOOL
+    api.GetWindowsDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+    api.GetWindowsDirectoryW.restype = wintypes.UINT
     return api
 
 
@@ -183,7 +191,7 @@ class FileSnapshot:
     @property
     def eligible_file(self) -> bool:
         return (not self.directory and not self.delete_pending and self.links == 1
-                and not self.attributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                and not self.attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_READONLY))
 
 
 class Handle:
@@ -247,7 +255,8 @@ def open_handle(path: Path, *, directory: bool = False, delete: bool = False) ->
     if directory:
         flags |= FILE_FLAG_BACKUP_SEMANTICS
     # Deletion is exclusive: even an existing reader makes this entry a skip.
-    sharing = 0 if delete else FILE_SHARE_READ
+    sharing = (0 if delete else FILE_SHARE_READ | FILE_SHARE_WRITE
+               | (0 if directory else FILE_SHARE_DELETE))
     # Metadata-only opens do not participate fully in Windows share accounting.
     # Request data/list access too so our no-delete share mode actually pins it.
     value = _kernel32().CreateFileW(str(path), FILE_READ_DATA | FILE_READ_ATTRIBUTES | (DELETE if delete else 0),
@@ -314,8 +323,8 @@ def pin_child(parent: PinnedDirectories, path: Path) -> Iterator[PinnedDirectori
                                 parent.identities + ((_path_key(path), identity),))
 
 
-def local_app_data() -> Path:
-    """Ask the Windows shell for the actual current-user LocalAppData folder."""
+def _known_folder(identifier: str) -> Path:
+    """Resolve a shell-owned folder without trusting an environment override."""
     if os.name != "nt":
         raise OSError("Clearspace requires Windows 10 or Windows 11.")
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
@@ -325,16 +334,53 @@ def local_app_data() -> Path:
     shell32.SHGetKnownFolderPath.restype = ctypes.c_long
     ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
     ole32.CoTaskMemFree.restype = None
-    folder = _GUID.from_buffer_copy(uuid.UUID("F1B32785-6FBA-4FCF-9D55-7B8E7F157091").bytes_le)
+    folder = _GUID.from_buffer_copy(uuid.UUID(identifier).bytes_le)
     result = wintypes.LPWSTR()
     status = shell32.SHGetKnownFolderPath(ctypes.byref(folder), 0, None, ctypes.byref(result))
     try:
         if status < 0:
-            raise OSError("The Windows LocalAppData folder is unavailable.")
+            raise OSError("The requested Windows known folder is unavailable.")
         return supported_path(Path(result.value))
     finally:
         if result:
             ole32.CoTaskMemFree(ctypes.cast(result, ctypes.c_void_p))
+
+
+def local_app_data() -> Path:
+    """Ask the Windows shell for the current-user LocalAppData folder."""
+    return _known_folder("F1B32785-6FBA-4FCF-9D55-7B8E7F157091")
+
+
+def roaming_app_data() -> Path:
+    """Ask the Windows shell for the current-user Roaming AppData folder."""
+    return _known_folder("3EB685DB-65F9-4CF6-A03A-E3EF65729F3D")
+
+
+def local_low_app_data() -> Path:
+    """Ask the Windows shell for the current-user LocalLow AppData folder."""
+    return _known_folder("A520A1A4-1780-4FF6-BD18-167343C5AF16")
+
+
+def common_app_data() -> Path:
+    """Ask the Windows shell for the machine-wide ProgramData folder."""
+    return _known_folder("62AB5D82-FDC1-4DC3-A9DD-070D1D495D97")
+
+
+def windows_directory() -> Path:
+    """Get the OS directory through GetWindowsDirectoryW, not WINDIR."""
+    api = _kernel32()
+    buffer = ctypes.create_unicode_buffer(260)
+    size = api.GetWindowsDirectoryW(buffer, len(buffer))
+    if not size:
+        raise _error()
+    if size >= len(buffer):
+        if size > 32768:
+            raise UnsafePathError("The Windows directory path is too long.")
+        buffer = ctypes.create_unicode_buffer(size + 1)
+        size = api.GetWindowsDirectoryW(buffer, len(buffer))
+        if not size or size >= len(buffer):
+            raise _error()
+    return supported_path(Path(buffer.value))
 
 
 def running_processes() -> set[str]:

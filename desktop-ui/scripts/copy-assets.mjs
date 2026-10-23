@@ -35,7 +35,7 @@ for (const name of Object.keys(manifest.dependencies)) await collect(name, root)
 
 let notices = 'Clearspace desktop interface — third-party notices\n\n'
 notices += 'shadcn/ui components\nSource: https://ui.shadcn.com/r/styles/new-york/\n'
-notices += 'Components: button, dialog\n'
+notices += 'Components: button, dialog, input, select\n'
 notices += 'Source license: https://github.com/shadcn-ui/ui/blob/main/LICENSE.md\n\n'
 notices += await fs.readFile(path.join(root, 'SHADCN-LICENSE.txt'), 'utf8')
 for (const [name, { directory, metadata }] of [...packages].sort(([a], [b]) => a.localeCompare(b))) {

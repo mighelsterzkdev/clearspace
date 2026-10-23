@@ -26,7 +26,8 @@ class CleanerTests(unittest.TestCase):
         self.directory = Path(self.sandbox.name)
         self.root = self.directory / "cache"
         self.root.mkdir()
-        self.category = Category("test", "Test cache", "Owned test fixture", (self.root,), True)
+        self.category = Category("test", "Test cache", "Owned test fixture", (self.root,), True,
+                                 minimum_age_days=7)
         self.cleaner = Cleaner([self.category], process_provider=lambda: set())
 
     def age_file(self, path: Path, *, creation_days=8, modified_days=8):
@@ -71,7 +72,20 @@ class CleanerTests(unittest.TestCase):
         self.assertEqual(ctypes.sizeof(windows._FILE_STANDARD_INFO), 24)
         self.assertEqual(ctypes.sizeof(windows._FILE_ID_INFO), 24)
         self.assertTrue(windows.local_app_data().is_absolute())
+        self.assertTrue(windows.roaming_app_data().is_absolute())
+        self.assertTrue(windows.local_low_app_data().is_absolute())
+        self.assertTrue(windows.common_app_data().is_absolute())
+        self.assertTrue(windows.windows_directory().is_absolute())
         self.assertIn(Path(sys.executable).name.casefold(), windows.running_processes())
+
+    def test_known_folder_helpers_ignore_environment_spoofing(self):
+        helpers = (windows.local_app_data, windows.roaming_app_data, windows.local_low_app_data,
+                   windows.common_app_data, windows.windows_directory)
+        expected = tuple(helper() for helper in helpers)
+        fake = str(self.directory / "wrong")
+        with patch.dict(os.environ, {"LOCALAPPDATA": fake, "APPDATA": fake,
+                                     "PROGRAMDATA": fake, "WINDIR": fake}):
+            self.assertEqual(tuple(helper() for helper in helpers), expected)
 
     def test_analysis_is_read_only_and_only_cleanup_removes_aged_files(self):
         old = self.file("nested/old.tmp", b"12345")
@@ -86,6 +100,61 @@ class CleanerTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(old.parent.is_dir(), "Empty directories are deliberately preserved")
         self.assertEqual(fresh.read_bytes(), b"keep")
+
+    def test_default_rule_includes_new_files_without_an_age_limit(self):
+        fresh = self.file("recent.tmp", b"new temporary data", old=False)
+        category = Category("test", "Test cache", "Owned test fixture", (self.root,), True)
+        self.assertEqual(category.minimum_age_days, 0)
+        cleaner = Cleaner([category], process_provider=lambda: set())
+        plan = cleaner.scan(["test"])
+        self.assertEqual(plan.total_files, 1)
+        self.assertEqual(fresh.read_bytes(), b"new temporary data")
+        self.assertEqual(cleaner.clean(plan, ["test"]).deleted_files, 1)
+        self.assertFalse(fresh.exists())
+
+    def test_file_patterns_are_case_insensitive_and_exclusions_are_preserved(self):
+        selected = self.file("nested/THUMBCACHE_256.DB", b"cache", old=False)
+        unselected = self.file("saved.db", b"personal", old=False)
+        excluded = self.file("thumbcache_keep.db", b"excluded", old=False)
+        category = Category("test", "Thumbnail cache", "Owned fixture", (self.root,), True,
+                            file_patterns=("thumbcache_*.db",),
+                            exclude_patterns=("thumbcache_keep.db",), group="Windows")
+        cleaner = Cleaner([category], process_provider=lambda: set())
+        plan = cleaner.scan(["test"])
+        self.assertEqual([entry.path for entry in plan.entries], [selected])
+        self.assertEqual(category.to_dict()["group"], "Windows")
+        self.assertEqual(category.to_dict()["file_patterns"], ["thumbcache_*.db"])
+        new_match = self.file("thumbcache_new.db", b"after analysis", old=False)
+        result = cleaner.clean(plan, ["test"])
+        self.assertEqual(result.deleted_files, 1)
+        self.assertFalse(selected.exists())
+        self.assertTrue(unselected.exists())
+        self.assertTrue(excluded.exists())
+        self.assertTrue(new_match.exists())
+
+    def test_open_directory_writer_does_not_hide_the_entire_category(self):
+        path = self.file()
+        api = windows._kernel32()
+        value = api.CreateFileW(str(self.root), 0x2, 7, None, 3,
+                               windows.FILE_FLAG_BACKUP_SEMANTICS | windows.FILE_FLAG_OPEN_REPARSE_POINT, None)
+        self.assertNotEqual(value, windows.INVALID_HANDLE_VALUE)
+        with windows.Handle(value):
+            plan = self.cleaner.scan(["test"])
+            self.assertEqual(plan.total_files, 1)
+            self.assertEqual(self.cleaner.clean(plan, ["test"]).deleted_files, 1)
+        self.assertFalse(path.exists())
+
+    def test_nonrecursive_rule_only_considers_files_directly_in_its_root(self):
+        selected = self.file("thumbcache_256.db", old=False)
+        nested = self.file("subfolder/thumbcache_256.db", old=False)
+        category = Category("test", "Thumbnail cache", "Owned fixture", (self.root,), True,
+                            file_patterns=("thumbcache_*.db",), recursive=False)
+        cleaner = Cleaner([category], process_provider=lambda: set())
+        plan = cleaner.scan(["test"])
+        self.assertFalse(plan.truncated)
+        self.assertEqual([entry.path for entry in plan.entries], [selected])
+        self.assertEqual(cleaner.clean(plan, ["test"]).deleted_files, 1)
+        self.assertTrue(nested.exists())
 
     def test_fresh_creation_with_old_modified_timestamp_is_kept(self):
         path = self.file(old=False)
@@ -227,6 +296,24 @@ class CleanerTests(unittest.TestCase):
         self.assertEqual((result.deleted_files, result.skipped_files), (0, 1))
         self.assertTrue(path.exists())
 
+    def test_analysis_probe_skips_files_already_in_use_without_deleting(self):
+        path = self.file()
+        api = windows._kernel32()
+        value = api.CreateFileW(str(path), windows.FILE_READ_DATA, 7, None, 3, 0, None)
+        self.assertNotEqual(value, windows.INVALID_HANDLE_VALUE)
+        with windows.Handle(value):
+            plan = self.cleaner.scan(["test"])
+        self.assertEqual((plan.total_files, plan.skipped_files), (0, 1))
+        self.assertEqual(path.read_bytes(), b"old data")
+
+    def test_readonly_files_are_not_reported_as_removable(self):
+        path = self.file()
+        path.chmod(0o400)
+        self.addCleanup(path.chmod, 0o600)
+        plan = self.cleaner.scan(["test"])
+        self.assertEqual(plan.total_files, 0)
+        self.assertTrue(path.exists())
+
     def test_plan_authority_is_not_replayable_or_transferable(self):
         self.file()
         plan = self.cleaner.scan(["test"])
@@ -336,6 +423,11 @@ class CleanerTests(unittest.TestCase):
         for path in [Path("relative"), self.root / ".." / "outside", Path(r"\\server\share\cache")]:
             with self.assertRaises(windows.UnsafePathError):
                 windows.supported_path(path)
+        for category in [replace(self.category, minimum_age_days=-1),
+                         replace(self.category, file_patterns=["*.tmp"]),
+                         replace(self.category, file_patterns=("../*.tmp",))]:
+            with self.assertRaises(ValueError):
+                Cleaner([category])
 
 
 if __name__ == "__main__":

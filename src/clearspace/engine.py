@@ -1,4 +1,4 @@
-"""Snapshot-based cleanup of a small allowlist of current-user cache folders.
+"""Snapshot-based cleanup of explicitly supported Windows cache locations.
 
 The production engine is Windows-only and never removes directories. A scan
 does not modify files. Cleanup accepts the exact in-memory plan created by this
@@ -10,6 +10,7 @@ space (compression, sparse files and concurrent disk activity affect that).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 import os
 from pathlib import Path
 import re
@@ -39,8 +40,12 @@ class Category:
     roots: tuple[Path, ...]
     default_selected: bool = False
     processes: tuple[str, ...] = ()
-    minimum_age_days: int = 7
+    minimum_age_days: int = 0
     reason: str | None = None
+    file_patterns: tuple[str, ...] = ()
+    exclude_patterns: tuple[str, ...] = ()
+    group: str = "Windows"
+    recursive: bool = True
 
     @property
     def available(self) -> bool:
@@ -52,6 +57,9 @@ class Category:
             "default_selected": self.default_selected, "available": self.available,
             "reason": self.reason, "minimum_age_days": self.minimum_age_days,
             "locations": [str(path) for path in self.roots],
+            "file_patterns": list(self.file_patterns),
+            "exclude_patterns": list(self.exclude_patterns), "group": self.group,
+            "recursive": self.recursive,
         }
 
 
@@ -157,28 +165,8 @@ def _profiles(base: Path, pattern: str) -> tuple[Path, ...]:
 
 def discover_categories() -> list[Category]:
     """Discover fixed supported folders; never take a path from renderer input."""
-    local = windows.local_app_data()
-
-    def roots(paths):
-        return tuple(path for path in paths if _existing_directory(path))
-
-    chrome = _profiles(local / "Google/Chrome/User Data", r"Default|Profile [1-9][0-9]*")
-    edge = _profiles(local / "Microsoft/Edge/User Data", r"Default|Profile [1-9][0-9]*")
-    firefox = _profiles(local / "Mozilla/Firefox/Profiles", r"[A-Za-z0-9._-]+")
-    categories = [
-        Category("user_temp", "Temporary files", "Temporary files older than 7 days.",
-                 roots([local / "Temp"]), default_selected=True),
-        Category("chrome_cache", "Google Chrome", "Disk cache only. Close Chrome before cleaning.",
-                 roots(profile / "Cache/Cache_Data" for profile in chrome), processes=("chrome.exe",)),
-        Category("edge_cache", "Microsoft Edge", "Disk cache only. Close Edge before cleaning.",
-                 roots(profile / "Cache/Cache_Data" for profile in edge), processes=("msedge.exe",)),
-        Category("firefox_cache", "Mozilla Firefox", "Disk cache only. Close Firefox before cleaning.",
-                 roots(profile / "cache2/entries" for profile in firefox), processes=("firefox.exe",)),
-        Category("pip_cache", "Python package cache", "Old download cache. Packages may need downloading again.",
-                 roots([local / "pip/Cache/http-v2", local / "pip/Cache/http"]), processes=("pip.exe", "pip3.exe")),
-    ]
-    return [Category(**{**category.__dict__, "reason": "No supported folder found."})
-            if not category.roots else category for category in categories]
+    from .catalog import discover_categories as discover
+    return discover()
 
 
 def _cancelled(cancel) -> bool:
@@ -210,8 +198,15 @@ class Cleaner:
         if len({item.id for item in self.categories}) != len(self.categories):
             raise ValueError("Category IDs must be unique.")
         for item in self.categories:
-            if not item.id or item.minimum_age_days < 7:
-                raise ValueError("Cleaning rules must keep at least 7 days of recent files.")
+            if not item.id or type(item.minimum_age_days) is not int or item.minimum_age_days < 0:
+                raise ValueError("Cleaning rule age limits must be nonnegative whole days.")
+            if type(item.recursive) is not bool:
+                raise ValueError("Cleaning rule recursion must be enabled or disabled explicitly.")
+            for patterns in (item.file_patterns, item.exclude_patterns):
+                if not isinstance(patterns, tuple) or any(
+                        not isinstance(pattern, str) or not pattern
+                        or any(character in pattern for character in '/\\:\x00') for pattern in patterns):
+                    raise ValueError("Cleaning rules must use immutable file-name patterns.")
             for root in item.roots:
                 windows.supported_path(root)
         if max_files < 1 or max_visited < 1 or max_depth < 1 or max_scan_seconds <= 0:
@@ -320,16 +315,37 @@ class Cleaner:
                                             or stat.S_ISLNK(value.st_mode)):
                                         skipped += 1
                                     elif stat.S_ISDIR(value.st_mode):
-                                        with windows.pin_child(pinned, path) as descendant:
-                                            walk(descendant, depth + 1)
+                                        if category.recursive:
+                                            with windows.pin_child(pinned, path) as descendant:
+                                                walk(descendant, depth + 1)
+                                        else:
+                                            skipped += 1
                                     elif stat.S_ISREG(value.st_mode):
-                                        # A fresh handle supplies the identity and coherent metadata.
+                                        name = child.name.casefold()
+                                        if ((category.file_patterns and not any(
+                                                fnmatchcase(name, pattern.casefold()) for pattern in category.file_patterns))
+                                                or any(fnmatchcase(name, pattern.casefold())
+                                                       for pattern in category.exclude_patterns)):
+                                            skipped += 1
+                                            report(category.id)
+                                            continue
+                                        # Metadata reads allow the owning app to continue operating.
                                         with windows.open_handle(path) as handle:
                                             snapshot = handle.snapshot()
-                                            if (not snapshot.eligible_file or snapshot.size < 0
-                                                    or max(snapshot.created_at, snapshot.modified_at) > created - category.minimum_age_days * DAY):
-                                                skipped += 1
-                                            elif snapshot.identity not in seen_files:
+                                        if (not snapshot.eligible_file or snapshot.size < 0
+                                                or (category.minimum_age_days > 0 and
+                                                    max(snapshot.created_at, snapshot.modified_at) > created - category.minimum_age_days * DAY)):
+                                            skipped += 1
+                                        elif snapshot.identity not in seen_files:
+                                            # Opening DELETE access is a read-only capability probe:
+                                            # never set disposition during analysis. This excludes
+                                            # files already in use or lacking removal permission.
+                                            with windows.open_handle(path, delete=True) as probe:
+                                                stable = probe.snapshot()
+                                                if stable != snapshot:
+                                                    skipped += 1
+                                                    report(category.id)
+                                                    continue
                                                 seen_files.add(snapshot.identity)
                                                 entry = Entry(uuid.uuid4().hex, category.id, path, snapshot.size,
                                                               snapshot.modified_at, snapshot, pinned.identities,
@@ -429,7 +445,8 @@ class Cleaner:
                         with windows.open_handle(entry.path, delete=True) as handle:
                             snapshot = handle.snapshot()
                             if (snapshot != entry._snapshot or not snapshot.eligible_file
-                                    or max(snapshot.created_at, snapshot.modified_at) > time.time() - entry._minimum_age_days * DAY):
+                                    or (entry._minimum_age_days > 0 and
+                                        max(snapshot.created_at, snapshot.modified_at) > time.time() - entry._minimum_age_days * DAY)):
                                 issue(entry, "File changed since analysis; kept.")
                             elif _cancelled(cancel):
                                 issue(entry, "Cleanup cancelled; kept.")
