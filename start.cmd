@@ -1,12 +1,12 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-if exist "%~dp0dist\clearspace-0.4.0-windows-x64\clearspace.exe" (
-    start "" "%~dp0dist\clearspace-0.4.0-windows-x64\clearspace.exe"
+if exist "%~dp0dist\clearspace-0.4.1-windows-x64\clearspace.exe" (
+    start "" "%~dp0dist\clearspace-0.4.1-windows-x64\clearspace.exe"
     exit /b 0
 )
 if not exist "%~dp0.venv\Scripts\pythonw.exe" (
-    echo Clearspace is not installed. Run install.cmd first.
+    echo Clearspace is not installed. Run scripts\install.cmd first.
     pause
     exit /b 1
 )

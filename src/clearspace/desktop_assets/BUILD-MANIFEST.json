@@ -5,16 +5,16 @@
     "build-inputs.json": "4bc54e00d6d32097229120c89f19806878fb712811f9afcbb0d7b91aedfa006a",
     "index.html": "bd926357c00a8ff6e86da86e52a8362a194435de8bff6cf1b304e6a38a658016",
     "licenses/react-remove-scroll-bar.txt": "fb5c42efb0f851322eefc4c44682bb38d57f364934dbb7bf3eacf39f6a412fff",
-    "package.json": "b744fdbe36a33a923a2c9bc5e8bd40534c1cb237db27ab1d820e35ab915c8d4d",
+    "package.json": "4f50e4796cf9b0d8192e81affb46d0d1e5347d1298401fa955aef485d0c0cd06",
     "pnpm-lock.yaml": "f6eae6d1ac25efb99686d19e4c781033227c7f4d36c60da059cd33c2b2cbfd9d",
     "pnpm-workspace.yaml": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353",
     "postcss.config.js": "45027a2befa94d6f46875c529d1088c12548d8f0bee31133e4ebb00ebc581e33",
     "scripts/build-manifest.mjs": "6173c1e5d01617bd8dece98d039742faf1c6d275cc1e4f6c53519b1a9b6fe22c",
     "scripts/copy-assets.mjs": "130f693cea6c9221a2223b02e8fc81c62b46819b33e4c65d0ecb8d3920cdb9b3",
-    "src/App.tsx": "5688118ac0162b6be19de185a4f7250fde255a05f9247c8defd45c3fd1a11623",
-    "src/components/CategoryRow.tsx": "1ac2465883aeee99269867c41eea34d1dab938161c840ca3ed41a2e03333f6d0",
+    "src/App.tsx": "225b8b7518520af7ccc913c9d5ece05ca1c6224ef698faab3095e4feab1dc9dd",
+    "src/components/CategoryRow.tsx": "c833554dc5130ae79538aa24ed3131209728c13978080287adf7b3289103dd38",
     "src/components/CategoryToolbar.tsx": "cb5b78d9107b024740e7b48f2d18cb8a24b7636b94accd645fbf8bf4114b62eb",
-    "src/components/CleanupResult.tsx": "97a666f85c377d106a72150601a4f92f1e3ee06c05c92ac7bd1fa816d61a10b2",
+    "src/components/CleanupResult.tsx": "a5e27941d9f33b5cb306f97f8aef68c27153347342dd3650dd3e63771d6e75df",
     "src/components/FilesDialog.tsx": "fcdac18aecd52001a4ceffbbc520639b4f32582e44891b80b3fbb5d648ab5e96",
     "src/components/ui/button.tsx": "d930c3580df1b4a55064ba3ac8ad3c152db8abbedb38dc65c799c636195f8018",
     "src/components/ui/dialog.tsx": "004a060cf1a74349aa044b2bdc3af163b3947e300293fe81252a53e0cd63adc8",
@@ -22,9 +22,9 @@
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
     "src/styles.css": "bf855bc74859c5170de4c95cc4112d82691f7546f1dc33ecfa011777cc12f1f6",
-    "src/test/App.test.tsx": "ac1ad34aa4c4726e580daf583792cb004c3d6a549e6f03f02ddd0f1dac37841d",
+    "src/test/App.test.tsx": "5d02a1a0ecc28a334477ddf22e3166b104b5476f8f816c40a58714567e92fd95",
     "src/test/setup.ts": "888a9496cb59c64df47334af0e7fcc540aff3e437a2632a815b532dcf9e0e02c",
-    "src/types.ts": "bbadf94d29fb8c3df60f29229ecd5aa9572259f6b4406714b06f1d52f6ea41c3",
+    "src/types.ts": "81032d10cb0576dfbc45b391611c6ad13571755570849163aaac0890548554e7",
     "src/use-cleaner.ts": "8ef5ff9e88037459ea18b533a4a5999d5e1b03483c46e88c6a7008911aa7ff9f",
     "tailwind.config.ts": "3a06e98a5d6f32f7b1d7332b48c3c0ac32b380644b5feba986e2e6f34d2e0a85",
     "tsconfig.json": "3bd610eac9afd46c0fd4e0cfd9881e919dd6b51faa9763b5fd3afad9c7c20e64",
@@ -32,8 +32,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
-    "assets/index-CXcRp8SN.js": "5b3b4a3c872077b63a7f362bfb0f6b4c477304401a2edfa5e94204347bd1744f",
+    "assets/index-7H8JYIJ7.js": "cad6d26c66d84c8a4c93c62639077a2efa49e1856282c886dd52f7490641b039",
     "assets/index-MfwI59m3.css": "4edd6f09381b5eb5a1dc09d77981f9c5dbd06cb1b82cf85956e21de2a6932ef9",
-    "index.html": "9914fbc508e59df0dadc9c06f9fcf3d844e3a9cac82caf22e9c1e5c9c373edb9"
+    "index.html": "ab09736a5ef43be418df9f2f02b791bbaef2c3f18cfa36afb17c6b975ffcf6f1"
   }
 }

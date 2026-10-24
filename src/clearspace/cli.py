@@ -91,7 +91,9 @@ def main(argv=None):
         for action in result.action_results:
             print(f"{action['title']}: {action['status']}. {action['detail'] or ''}")
         print("Disk free space may differ from the size of deleted files.")
-        return 1 if result.failed_files or any(item["status"] == "failed" for item in result.action_results) else 0
+        if result.failed_files or any(item["status"] == "failed" for item in result.action_results):
+            return 1
+        return 2 if any(item["status"] == "deferred" for item in result.action_results) else 0
     except KeyboardInterrupt:
         cancel.set()
         print("\nOperation stopped. Any files already removed stay removed.", file=sys.stderr)

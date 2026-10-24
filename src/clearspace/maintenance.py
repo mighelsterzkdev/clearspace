@@ -25,13 +25,17 @@ import os
 import re
 import subprocess
 import tempfile
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
+import time
 from typing import Callable, Protocol
 
 from . import windows
 
 
 QUERY_TIMEOUT = 45
+COMPONENT_QUERY_TIMEOUT = 5 * 60
+QUEUE_WAIT_TIMEOUT = 5 * 60
+WAIT_INTERVAL = 0.2
 COMPONENT_CLEAN_TIMEOUT = 60 * 60
 DELIVERY_CLEAN_TIMEOUT = 5 * 60
 MAX_OUTPUT = 1024 * 1024
@@ -41,6 +45,36 @@ _NATIVE_DETAIL = "Windows determines the removable data. Once started, this syst
 
 class MaintenanceError(OSError):
     """A supported native maintenance action is unavailable or failed."""
+
+
+class MaintenanceDeferredError(MaintenanceError):
+    """Windows work is waiting/running, rather than a failed cleanup."""
+
+    status = "deferred"
+
+    def __init__(self, message: str, *, action_id: str | None = None,
+                 operation: str | None = None):
+        super().__init__(message)
+        self.action_id = action_id
+        self.operation = operation
+
+
+class MaintenanceBusyError(MaintenanceDeferredError):
+    """A queue wait expired; this action has not started."""
+
+    status = "waiting"
+
+
+class MaintenanceStillRunningError(MaintenanceDeferredError):
+    """The submitted native operation continues after this call returns."""
+
+    status = "running"
+
+
+class MaintenanceCancelledError(MaintenanceDeferredError):
+    """Stop was requested before submitting a native operation."""
+
+    status = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -74,7 +108,7 @@ class ActionResult:
 
 
 class MaintenanceProvider(Protocol):
-    def query(self) -> ActionSnapshot: ...
+    def query(self, cancel: Event | None = None) -> ActionSnapshot: ...
 
     def clean(self, snapshot: ActionSnapshot, cancel: Event | None = None) -> ActionResult: ...
 
@@ -120,33 +154,83 @@ class _CommandResult:
     output: str
 
 
+@dataclass
+class _ActiveCommand:
+    child: object
+    output: object
+    action_id: str | None
+    operation: str
+    started_at: float
+    detached: bool = False
+
+
 class _CommandRunner:
     """Serialize native work and keep timed-out servicing alive, with no pipe hang.
 
     Output goes to an owned temporary file, never an arbitrary log path. A
     daemon reaper retains that handle after a timeout until the child exits.
-    Further operations are rejected while the previous child is still running.
+    Further operations wait for earlier Windows work, with a bounded queue wait
+    and a cancellation check before process creation. A read-only analysis can
+    stop waiting while its native process finishes; servicing is never killed.
     """
 
     def __init__(self):
         self._lock = Lock()
+        self._condition = Condition(self._lock)
         self._active = None
 
-    def _reap(self, child, output):
-        try:
-            child.wait()
-        finally:
-            output.close()
-            with self._lock:
-                if self._active is child:
-                    self._active = None
+    def activity(self) -> dict | None:
+        with self._condition:
+            active = self._active
+            if active is None:
+                return None
+            return {
+                "action_id": active.action_id,
+                "operation": active.operation,
+                "phase": "finishing" if active.detached else "running",
+                "elapsed_seconds": max(0, int(time.monotonic() - active.started_at)),
+            }
 
-    def run(self, command: tuple[str, ...], *, timeout: int, powershell: bool = False) -> _CommandResult:
+    def _finish(self, active):
+        try:
+            active.output.close()
+        finally:
+            with self._condition:
+                if self._active is active:
+                    self._active = None
+                    self._condition.notify_all()
+
+    def _reap(self, active):
+        try:
+            active.child.wait()
+        finally:
+            self._finish(active)
+
+    def _detach(self, active):
+        with self._condition:
+            active.detached = True
+        Thread(target=self._reap, args=(active,), daemon=True,
+               name="clearspace-windows-maintenance").start()
+
+    def run(self, command: tuple[str, ...], *, timeout: int, powershell: bool = False,
+            cancel: Event | None = None, action_id: str | None = None,
+            operation: str = "analyze", queue_timeout: float = QUEUE_WAIT_TIMEOUT) -> _CommandResult:
         if os.name != "nt":
             raise MaintenanceError("System cleanup requires Windows 10 or Windows 11.")
-        with self._lock:
-            if self._active is not None:
-                raise MaintenanceError("A Windows maintenance operation is still running. Wait for it to finish before trying again.")
+        queue_deadline = time.monotonic() + queue_timeout
+        with self._condition:
+            while self._active is not None:
+                if _cancelled(cancel):
+                    raise MaintenanceCancelledError("Stopped while waiting for Windows maintenance. This action did not start.",
+                                                    action_id=action_id, operation=operation)
+                remaining = queue_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise MaintenanceBusyError("Earlier Windows maintenance is still running. This action is waiting and has not started; analyze again after Windows finishes.",
+                                               action_id=action_id, operation=operation)
+                self._condition.wait(min(WAIT_INTERVAL, remaining))
+            if _cancelled(cancel):
+                raise MaintenanceCancelledError("Stopped before Windows maintenance started.",
+                                                action_id=action_id, operation=operation)
             output = tempfile.TemporaryFile(mode="w+b")
             try:
                 system_dir = windows.windows_directory() / "System32"
@@ -166,16 +250,33 @@ class _CommandRunner:
                     shell=False, close_fds=True, startupinfo=startup,
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
-                self._active = child
+                active = _ActiveCommand(child, output, action_id, operation, time.monotonic())
+                self._active = active
             except OSError as error:
                 output.close()
                 raise MaintenanceError("Windows could not start the system cleanup tool.") from error
-        try:
-            child.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as error:
-            Thread(target=self._reap, args=(child, output), daemon=True,
-                   name="clearspace-windows-maintenance").start()
-            raise MaintenanceError("Windows maintenance is taking longer than expected and is still running. It was not stopped. Wait for it to finish before trying again.") from error
+        deadline = time.monotonic() + timeout
+        while True:
+            # Once a cleanup is submitted, Stop must allow that cleanup to
+            # finish. Analysis is read-only: Stop can release the caller while
+            # its native process continues and remains serialized in the queue.
+            stopped_analysis = operation == "analyze" and _cancelled(cancel)
+            remaining = deadline - time.monotonic()
+            try:
+                child.wait(timeout=0 if stopped_analysis else max(0, min(WAIT_INTERVAL, remaining)))
+                break
+            except subprocess.TimeoutExpired as error:
+                if not stopped_analysis and remaining > 0:
+                    continue
+                self._detach(active)
+                if stopped_analysis:
+                    message = "Analysis stopped waiting; Windows is still finishing its read-only maintenance check. No cleanup was started by this analysis."
+                elif operation == "analyze":
+                    message = "Windows is still analyzing cleanup options. No cleanup was started by this analysis. Later system actions will wait; analyze again after it finishes."
+                else:
+                    message = "Windows system cleanup is still running. It was not stopped; later system actions will wait for it to finish."
+                raise MaintenanceStillRunningError(message, action_id=action_id,
+                                                   operation=operation) from error
         try:
             output.seek(0)
             raw = output.read(MAX_OUTPUT + 1)
@@ -186,13 +287,15 @@ class _CommandRunner:
             text = raw.decode("utf-8" if powershell else "oem", errors="replace")
             return _CommandResult(child.returncode, text.lstrip("\ufeff"))
         finally:
-            output.close()
-            with self._lock:
-                if self._active is child:
-                    self._active = None
+            self._finish(active)
 
 
 _RUNNER = _CommandRunner()
+
+
+def maintenance_activity() -> dict | None:
+    """Read native operation status for progress UI without running commands."""
+    return _RUNNER.activity()
 
 
 def _fixed_system_executable(relative: tuple[str, ...]) -> str:
@@ -242,9 +345,14 @@ class WindowsComponentCleanup:
         return (_fixed_system_executable(("dism.exe",)), "/Online", "/Cleanup-Image",
                 operation, "/English", "/NoRestart")
 
-    def query(self) -> ActionSnapshot:
+    def query(self, cancel: Event | None = None) -> ActionSnapshot:
+        if _cancelled(cancel):
+            raise MaintenanceCancelledError("Stopped before Windows component analysis started.",
+                                            action_id=self.action_id, operation="analyze")
         self._preflight()
-        result = self._runner.run(self._command("/AnalyzeComponentStore"), timeout=QUERY_TIMEOUT)
+        result = self._runner.run(self._command("/AnalyzeComponentStore"),
+                                  timeout=COMPONENT_QUERY_TIMEOUT, cancel=cancel,
+                                  action_id=self.action_id, operation="analyze")
         if result.returncode == 3010:
             raise MaintenanceError("Restart Windows before cleaning Windows components.")
         if result.returncode != 0:
@@ -262,13 +370,20 @@ class WindowsComponentCleanup:
             return _stopped()
         if not snapshot.pending:
             return ActionResult(True, 0, "No Windows component cleanup was needed.")
-        current = self.query()
+        try:
+            current = self.query(cancel=cancel)
+        except MaintenanceCancelledError:
+            return _stopped()
         if _cancelled(cancel):
             return _stopped()
         if not current.pending:
             return ActionResult(True, 0, "Windows no longer recommends component cleanup.")
-        result = self._runner.run(self._command("/StartComponentCleanup"),
-                                  timeout=COMPONENT_CLEAN_TIMEOUT)
+        try:
+            result = self._runner.run(self._command("/StartComponentCleanup"),
+                                      timeout=COMPONENT_CLEAN_TIMEOUT, cancel=cancel,
+                                      action_id=self.action_id, operation="cleanup")
+        except MaintenanceCancelledError:
+            return _stopped()
         if result.returncode not in (0, 3010):
             raise MaintenanceError(f"Windows component cleanup failed (code {result.returncode & 0xFFFFFFFF}).")
         detail = ("Windows component cleanup completed. Restart Windows to finish."
@@ -310,19 +425,24 @@ class WindowsDeliveryOptimization:
         self._runner = runner if runner is not None else _RUNNER
         self._administrator = administrator or is_administrator
 
-    def _run(self, script: str, timeout: int) -> _CommandResult:
+    def _run(self, script: str, timeout: int, cancel: Event | None = None) -> _CommandResult:
         # The only scripts passed here are the two module constants above.
         if script not in (_DELIVERY_QUERY, _DELIVERY_CLEAN):
             raise ValueError("Unsupported Delivery Optimization operation.")
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
         command = (_fixed_system_executable(("WindowsPowerShell", "v1.0", "powershell.exe")),
                    "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-        return self._runner.run(command, timeout=timeout, powershell=True)
+        return self._runner.run(command, timeout=timeout, powershell=True,
+                                cancel=cancel, action_id=self.action_id,
+                                operation="cleanup" if script == _DELIVERY_CLEAN else "analyze")
 
-    def query(self) -> ActionSnapshot:
+    def query(self, cancel: Event | None = None) -> ActionSnapshot:
+        if _cancelled(cancel):
+            raise MaintenanceCancelledError("Stopped before Delivery Optimization analysis started.",
+                                            action_id=self.action_id, operation="analyze")
         if not self._administrator():
             raise MaintenanceError(_ADMIN_REQUIRED)
-        result = self._run(_DELIVERY_QUERY, QUERY_TIMEOUT)
+        result = self._run(_DELIVERY_QUERY, QUERY_TIMEOUT, cancel=cancel)
         if result.returncode != 0:
             raise MaintenanceError("Delivery Optimization cache could not be read. The Windows service or PowerShell module may be unavailable.")
         try:
@@ -341,12 +461,18 @@ class WindowsDeliveryOptimization:
             return _stopped()
         if not snapshot.pending:
             return ActionResult(True, 0, "Delivery Optimization cache was empty.")
-        current = self.query()
+        try:
+            current = self.query(cancel=cancel)
+        except MaintenanceCancelledError:
+            return _stopped()
         if _cancelled(cancel):
             return _stopped()
         if not current.pending:
             return ActionResult(True, 0, "Delivery Optimization cache is already empty.")
-        result = self._run(_DELIVERY_CLEAN, DELIVERY_CLEAN_TIMEOUT)
+        try:
+            result = self._run(_DELIVERY_CLEAN, DELIVERY_CLEAN_TIMEOUT, cancel=cancel)
+        except MaintenanceCancelledError:
+            return _stopped()
         if result.returncode != 0:
             raise MaintenanceError("Windows could not complete Delivery Optimization cleanup. Pinned files were not force-deleted.")
         return ActionResult(True, None, "Windows completed Delivery Optimization cleanup. Pinned files were kept; an exact removed size is unavailable.")

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, CircleAlert, ExternalLink, HardDrive, LoaderCircle, Search, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, CircleAlert, Clock3, ExternalLink, HardDrive, LoaderCircle, Search, Trash2, X } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { CategoryRow } from './components/CategoryRow'
@@ -24,6 +24,7 @@ export default function App() {
   const selectedFiles = selected.reduce((sum, category) => sum + category.files, 0)
   const selectedActions = selected.reduce((sum, category) => sum + (category.actions || 0), 0)
   const analysisError = selected.some(category => category.analysis_error)
+  const analysisPending = selected.some(category => category.analysis_pending)
   const historyOnly = selected.filter(category => category.files > 0 || (category.actions || 0) > 0).every(isHistoryAction)
   const available = state.categories.filter(category => category.available)
   const unavailable = state.categories.filter(category => !category.available)
@@ -35,17 +36,21 @@ export default function App() {
   const canClean = !disabled && ready && (selectedFiles > 0 || selectedActions > 0)
   const reviewOpen = review !== null && ready && review.scanId === state.scan_id
   const result = state.result
+  const resultFailed = Boolean(result && (result.failed > 0 || (result.actions_failed ?? result.actions?.filter(action => action.status === 'failed').length ?? 0) > 0))
+  const resultPending = (result?.actions_deferred ?? result?.actions?.filter(action => action.status === 'deferred').length ?? 0) > 0
   useEffect(() => {
     if (state.phase === 'completed' || state.phase === 'cancelled') content.current?.scrollTo({ top: 0 })
   }, [state.phase])
   const currentCategory = state.categories.find(category => category.id === state.progress.current)?.title
-  const status = state.phase === 'scanning' ? 'Analyzing selected categories' : state.phase === 'cleaning' ? 'Cleaning selected items'
-    : state.phase === 'ready' ? selectedFiles > 0 || selectedActions > 0 ? 'Analysis complete' : analysisError ? 'Analysis needs attention' : 'Nothing to clean'
-    : state.phase === 'completed' ? result && (result.failed > 0 || (result.actions_failed || 0) > 0) ? 'Cleanup finished with errors' : 'Cleanup complete'
+  const status = state.phase === 'scanning' ? 'Analyzing selected categories' : state.phase === 'cleaning' ? state.progress.message || 'Cleaning selected items'
+    : state.phase === 'ready' ? selectedFiles > 0 || selectedActions > 0 ? 'Analysis complete' : analysisError ? 'Analysis needs attention' : analysisPending ? 'Waiting for Windows' : 'Nothing to clean'
+    : state.phase === 'completed' ? resultFailed ? 'Cleanup finished with errors' : resultPending ? 'Cleanup finished with pending work' : 'Cleanup complete'
     : state.phase === 'cancelled' ? 'Stopped' : state.phase === 'error' ? 'Something needs attention' : 'Ready when you are'
   const readySummary = selectedFiles === 0 && selectedActions === 0 && analysisError ? 'Analysis needs attention'
+    : selectedFiles === 0 && selectedActions === 0 && analysisPending ? 'Waiting for Windows'
     : selectedFiles === 0 && selectedActions > 0 ? countActions(selectedActions) : `${formatBytes(selectedBytes)} ${selectedActions > 0 ? 'known' : 'selected'}`
   const readyDetails = selectedFiles === 0 && selectedActions === 0 && analysisError ? 'Review the category messages.'
+    : selectedFiles === 0 && selectedActions === 0 && analysisPending ? 'Analyze again after Windows finishes.'
     : selectedFiles > 0 || selectedActions === 0 ? `${countItems(selectedFiles)}${selectedActions > 0 ? ` · ${countActions(selectedActions)}` : ''}`
     : historyOnly ? 'History records only. Original files are kept.' : 'Windows manages these cleanup actions.'
   const reviewDescription = review?.actions ? `Run ${countActions(review.actions)}${review.files > 0 ? ` and permanently delete ${countItems(review.files)}` : ''} from the selected categories.`
@@ -83,6 +88,7 @@ export default function App() {
     <header className="app-header"><div className="app-brand"><HardDrive className="size-5 text-muted-foreground" aria-hidden="true" /><h1>Clearspace</h1></div><span className="app-caption">Windows cleaner</span></header>
     {!connected ? <div className="notice" role="status"><CircleAlert className="size-4 shrink-0" /><span>Waiting for the desktop connection. Open Clearspace with start.cmd.</span></div> : null}
     {error || state.error ? <div className="notice notice-error" role="alert"><CircleAlert className="size-4 shrink-0" /><span>{error || state.error}</span>{error ? <Button variant="ghost" size="icon" aria-label="Dismiss error" onClick={dismissError}><X /></Button> : null}</div> : null}
+    {state.maintenance && !busy ? <div className="notice" role="status"><Clock3 className="size-4 shrink-0 text-amber-300" aria-hidden="true" /><span>{state.maintenance.operation === 'analyze' ? 'Windows is still analyzing cleanup options.' : 'Windows maintenance is still running.'}</span></div> : null}
     <main className="app-content" ref={content}>
       <section aria-labelledby="cleanup-heading">
         <div className="section-heading"><div><h2 id="cleanup-heading">Clean up your PC</h2><p>Select what to clean, then analyze.</p></div>
@@ -90,10 +96,10 @@ export default function App() {
             : analyzed || result ? <Button variant="outline" disabled={disabled || selected.length === 0} onClick={analyze}><Search />Analyze again</Button> : null}
         </div>
         {result ? <CleanupResult result={result} /> : null}
-        {busy ? <div className="operation-progress" role="status" aria-live="polite"><div><LoaderCircle className="size-4 animate-spin" aria-hidden="true" /><span>{state.phase === 'scanning' ? 'Analyzing' : 'Cleaning'}{currentCategory ? ` · ${currentCategory}` : '…'}</span><span>{state.progress.checked.toLocaleString('en-US')} checked</span></div><div className="indeterminate-track" aria-hidden="true"><span /></div></div> : null}
-        {ready && selectedFiles === 0 && selectedActions === 0 ? <div className={`empty-result${analysisError ? ' empty-result-warning' : ''}`} role="status">
-          {analysisError ? <CircleAlert className="size-5" aria-hidden="true" /> : <Check className="size-5" aria-hidden="true" />}
-          <div><p>{analysisError ? 'Some categories could not be analyzed' : 'Nothing to clean in the selected categories'}</p><span>{analysisError ? 'Review the category messages and analyze again.' : 'You can select other categories or analyze again later.'}</span></div>
+        {busy ? <div className="operation-progress" role="status" aria-live="polite"><div><LoaderCircle className="size-4 animate-spin" aria-hidden="true" /><span>{state.progress.message || `${state.phase === 'scanning' ? 'Analyzing' : 'Cleaning'}${currentCategory ? ` · ${currentCategory}` : '…'}`}</span><span>{state.progress.checked.toLocaleString('en-US')} checked</span></div><div className="indeterminate-track" aria-hidden="true"><span /></div></div> : null}
+        {ready && selectedFiles === 0 && selectedActions === 0 ? <div className={`empty-result${analysisError || analysisPending ? ' empty-result-warning' : ''}`} role="status">
+          {analysisError ? <CircleAlert className="size-5" aria-hidden="true" /> : analysisPending ? <Clock3 className="size-5" aria-hidden="true" /> : <Check className="size-5" aria-hidden="true" />}
+          <div><p>{analysisError ? 'Some categories could not be analyzed' : analysisPending ? 'Windows analysis is still running' : 'Nothing to clean in the selected categories'}</p><span>{analysisError ? 'Review the category messages and analyze again.' : analysisPending ? 'Analyze again after Windows finishes.' : 'You can select other categories or analyze again later.'}</span></div>
         </div> : null}
         {state.phase === 'cancelled' && !result ? <p className="field-help analysis-message" role="status">Analysis stopped. Run Analyze again to prepare a complete file list.</p> : null}
         <CategoryToolbar disabled={disabled} selected={selected.length} available={available.length}

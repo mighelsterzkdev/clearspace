@@ -89,12 +89,26 @@ class CleanerService:
                 "actions": getattr(found, "actions", 0) if found else 0,
                 "size_known": getattr(found, "size_known", True) if found else True,
                 "analysis_error": getattr(found, "analysis_error", False) if found else False,
+                "analysis_pending": getattr(found, "analysis_pending", False) if found else False,
             })
         self._state["categories"] = rows
 
     def get_state(self):
         with self._lock:
-            return deepcopy(self._state)
+            state = deepcopy(self._state)
+            from .maintenance import maintenance_activity
+            activity = maintenance_activity()
+            state["maintenance"] = deepcopy(activity)
+            state["progress"]["message"] = None
+            if activity and state["phase"] in {"scanning", "cleaning"}:
+                current = self._categories.get(state["progress"]["current"])
+                if current and getattr(current, "native_action", None) in {"windows_components", "delivery_optimization"}:
+                    action = self._categories.get(activity["action_id"])
+                    label = action.label if action else "Windows maintenance"
+                    operation = "analysis" if activity["operation"] == "analyze" else "cleanup"
+                    prefix = "Waiting for" if current.id != activity["action_id"] else "Windows is running"
+                    state["progress"]["message"] = f"{prefix} {label} {operation}. This may take a few minutes."
+            return state
 
     def _require_idle(self):
         if self._closed:
@@ -191,7 +205,8 @@ class CleanerService:
                     action_results = [dict(item) for item in getattr(result, "action_results", ())]
                     summary.update(actions=action_results,
                                    actions_completed=sum(item["status"] == "completed" for item in action_results),
-                                   actions_failed=sum(item["status"] == "failed" for item in action_results))
+                                   actions_failed=sum(item["status"] == "failed" for item in action_results),
+                                   actions_deferred=sum(item["status"] == "deferred" for item in action_results))
                     with self._lock:
                         bin_notes = [item["reason"] for item in getattr(result, "issues", ()) if item["path"] == "Recycle Bin"]
                         self._state.update(phase="cancelled" if result.cancelled else "completed", result=summary,

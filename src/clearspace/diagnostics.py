@@ -44,7 +44,7 @@ def verify_portable():
         class SandboxAction:
             calls = 0
 
-            def query(self):
+            def query(self, cancel=None):
                 return ActionSnapshot(True, None, "Portable verification fixture only.")
 
             def clean(self, snapshot, cancel=None):

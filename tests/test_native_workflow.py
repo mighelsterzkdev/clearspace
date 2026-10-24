@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from clearspace.engine import Category, Cleaner
-from clearspace.maintenance import ActionResult, ActionSnapshot
+from clearspace.maintenance import ActionResult, ActionSnapshot, MaintenanceBusyError, MaintenanceStillRunningError
 from clearspace.service import CleanerService, ServiceError
 
 
@@ -25,7 +25,7 @@ class FakeAction:
         self.query_error = False
         self.clean_error = False
 
-    def query(self):
+    def query(self, cancel=None):
         if self.query_error:
             raise OSError("Administrator permission required.")
         return self.snapshot
@@ -117,6 +117,86 @@ class NativeWorkflowTests(unittest.TestCase):
             self.assertEqual((result.deleted_files, result.freed_bytes), (1, len(b"owned cache")))
             self.assertEqual(result.action_results[0]["status"], "failed")
             self.assertIn("Native cleanup failed", result.action_results[0]["detail"])
+
+    def test_late_native_query_does_not_exhaust_file_analysis_budget(self):
+        with TemporaryDirectory(prefix="clearspace-native-budget-test-") as directory:
+            folder = Path(directory)
+            marker = folder / "owned.tmp"
+            marker.write_bytes(b"owned cache")
+            cache = Category("cache", "Cache", "Owned", (folder,))
+            clock = [0.0]
+
+            def late_query(cancel=None):
+                clock[0] += 69
+                return self.provider.snapshot
+
+            self.provider.query = late_query
+            cleaner = Cleaner([ACTION, cache], native_actions={ACTION.id: self.provider}, max_scan_seconds=1)
+            with patch("clearspace.engine.time.monotonic", side_effect=lambda: clock[0]):
+                plan = cleaner.scan([ACTION.id, cache.id])
+            self.assertFalse(plan.truncated)
+            self.assertEqual((plan.total_files, plan.total_actions), (1, 1))
+            self.assertTrue(marker.exists())
+
+    def test_unfinished_native_analysis_is_pending_and_has_no_cleanup_authority(self):
+        def pending_query(cancel=None):
+            raise MaintenanceStillRunningError("Windows is still analyzing cleanup options. No cleanup was started.",
+                                               action_id=ACTION.id, operation="analyze")
+
+        self.provider.query = pending_query
+        plan = self.cleaner.scan([ACTION.id])
+        self.assertTrue(plan.category_stats[0].analysis_pending)
+        self.assertFalse(plan.category_stats[0].analysis_error)
+        self.assertEqual(plan.total_actions, 0)
+        result = self.cleaner.clean(plan, [ACTION.id])
+        self.assertEqual(result.action_results[0]["status"], "deferred")
+        self.assertIn("analyzing", result.action_results[0]["detail"])
+        self.assertFalse(self.provider.calls)
+
+    def test_native_queue_wait_is_pending_instead_of_cleanup_failure(self):
+        plan = self.cleaner.scan([ACTION.id])
+
+        def queued_cleanup(snapshot, cancel=None):
+            raise MaintenanceBusyError("Earlier Windows work is still running; this action has not started.")
+
+        self.provider.clean = queued_cleanup
+        result = self.cleaner.clean(plan, [ACTION.id])
+        self.assertEqual(result.action_results[0]["status"], "deferred")
+        self.assertEqual(result.failed_files, 0)
+        self.assertEqual(result.deleted_files, 0)
+
+    def test_deferred_service_result_does_not_increment_failed_actions(self):
+        with TemporaryDirectory(prefix="clearspace-native-pending-test-") as directory:
+            service = CleanerService(self.cleaner, directory)
+            try:
+                service.set_selection([ACTION.id])
+                service.scan()
+                ready = self.wait(service, "ready")
+
+                def deferred_cleanup(snapshot, cancel=None):
+                    raise MaintenanceBusyError("Earlier analysis is still running; this cleanup has not started.")
+
+                self.provider.clean = deferred_cleanup
+                service.clean(ready["scan_id"], [ACTION.id])
+                result = self.wait(service, "completed")["result"]
+                self.assertEqual((result["actions_completed"], result["actions_failed"], result["actions_deferred"]), (0, 0, 1))
+            finally:
+                service.shutdown()
+
+    def test_service_progress_describes_running_analysis_without_claiming_cleanup(self):
+        with TemporaryDirectory(prefix="clearspace-native-progress-test-") as directory:
+            service = CleanerService(self.cleaner, directory)
+            try:
+                activity = {"action_id": ACTION.id, "operation": "analyze", "phase": "running", "elapsed_seconds": 68}
+                service._state.update(phase="scanning", progress={"checked": 0, "files": 0, "bytes": 0, "current": ACTION.id})
+                with patch("clearspace.maintenance.maintenance_activity", return_value=activity):
+                    state = service.get_state()
+                self.assertEqual(state["maintenance"]["operation"], "analyze")
+                self.assertIn("analysis", state["progress"]["message"])
+                state["maintenance"]["phase"] = "changed-copy"
+                self.assertEqual(activity["phase"], "running")
+            finally:
+                service.shutdown()
 
     def test_unselected_action_does_not_run(self):
         other = replace(ACTION, id="delivery_optimization", native_action="delivery_optimization")

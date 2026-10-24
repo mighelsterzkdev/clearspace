@@ -6,7 +6,7 @@ import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse }
 
 function initial(): CleanerState {
   return {
-    version: '0.4.0', phase: 'idle', scan_id: null, scanned_at: null,
+    version: '0.4.1', phase: 'idle', scan_id: null, scanned_at: null,
     categories: [
       { id: 'recycle_bin', title: 'Recycle Bin', description: 'Deleted files and folders.', group: 'Windows', native_action: 'empty_recycle_bin', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'user_temp', title: 'Temporary files', description: 'User temporary files.', group: 'Windows', recommended: true, available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
@@ -473,6 +473,117 @@ describe('Windows cleanup actions', () => {
     const dialog = screen.getByRole('dialog', { name: 'Remove 2 KiB?' })
     expect(within(dialog).getByText('Temporary files')).toBeVisible()
     expect(within(dialog).queryByText('Windows component cleanup')).not.toBeInTheDocument()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('shows deferred Windows work as pending without claiming failure or zero-byte success', async () => {
+    const { update } = bridge()
+    update({ phase: 'completed', result: { removed: 0, freed_bytes: 0, skipped: 0, failed: 0, cancelled: false,
+      actions_completed: 0, actions_failed: 0, actions_deferred: 1, actions: [
+        { category_id: 'delivery_optimization', title: 'Delivery Optimization cache', status: 'deferred', freed_bytes: null,
+          detail: 'Windows maintenance is still running. Analyze again after it finishes.' },
+      ] } })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Cleanup finished with pending work' })).toBeVisible()
+    expect(document.querySelector('.app-footer')).toHaveTextContent('Cleanup finished with pending work')
+    expect(screen.getByText('1 cleanup action pending')).toBeVisible()
+    const list = screen.getByRole('list', { name: 'Cleanup action results' })
+    expect(within(list).getByText('Pending')).toBeVisible()
+    expect(within(list).getByText('Windows maintenance is still running. Analyze again after it finishes.')).toBeVisible()
+    expect(within(list).queryByText('Failed')).not.toBeInTheDocument()
+    expect(document.querySelector('.result-icon-warning .lucide-clock3')).toBeInTheDocument()
+    expect(document.querySelector('.cleanup-action-list .lucide-clock3')).toHaveClass('text-amber-300')
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(screen.queryByText(/0 cleanup actions completed/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cleanup complete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cleanup finished with errors' })).not.toBeInTheDocument()
+  })
+
+  it('keeps removed file totals separate from pending maintenance', async () => {
+    const { update } = bridge()
+    update({ phase: 'completed', result: { removed: 4, freed_bytes: 4096, skipped: 0, failed: 0, cancelled: false,
+      actions_completed: 1, actions_failed: 0, actions_deferred: 1, actions: [
+        { category_id: 'run_history', title: 'Run dialog history', status: 'completed', freed_bytes: 0, detail: null },
+        { category_id: 'delivery_optimization', title: 'Delivery Optimization cache', status: 'deferred', freed_bytes: null, detail: null },
+      ] } })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Cleanup finished with pending work' })).toBeVisible()
+    expect(screen.getByText(/removed · 4 items · 1 cleanup action completed · 1 cleanup action pending/)).toBeVisible()
+    expect(screen.getByText('Known size only. Pending Windows cleanup is not included.')).toBeVisible()
+    expect(screen.getByText('Windows maintenance is still running. Analyze again after it finishes.')).toBeVisible()
+    expect(screen.queryByText(/cleanup action failed/)).not.toBeInTheDocument()
+  })
+
+  it('shows a maintenance wait message and keeps Stop available before the next operation starts', async () => {
+    const user = userEvent.setup()
+    const { api, update } = bridge()
+    update({ phase: 'cleaning', progress: { checked: 2, files: 2, bytes: 4096, current: 'delivery_optimization',
+      message: 'Waiting for Windows maintenance to finish' } })
+    render(<App />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled())
+    expect(screen.getAllByText('Waiting for Windows maintenance to finish').every(element => element.textContent === 'Waiting for Windows maintenance to finish')).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(api.cancel).toHaveBeenCalledOnce())
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('keeps a still-running Windows analysis distinct from failure and an empty successful scan', async () => {
+    const user = userEvent.setup()
+    const pendingCategory = { ...nativeCategory('windows_components', 'Windows component cleanup', false), selected: true,
+      analysis_pending: true, analysis_error: false, reason: 'Windows is still analyzing update cleanup.' }
+    const { api, snapshot, update } = bridge([pendingCategory])
+    await api.set_selection(['windows_components'])
+    api.scan.mockImplementationOnce(async () => {
+      update({ phase: 'ready', scan_id: 'pending-native', categories: [pendingCategory] })
+      return snapshot()
+    })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    expect(await screen.findByText('Windows analysis is still running')).toBeVisible()
+    expect(screen.getAllByText('Analyze again after Windows finishes.').every(element => element.textContent === 'Analyze again after Windows finishes.')).toBe(true)
+    expect(document.querySelector('.app-footer')).toHaveTextContent('Waiting for Windows')
+    const row = screen.getByRole('checkbox', { name: 'Windows component cleanup' }).closest('li')!
+    expect(within(row).getByText('Waiting for Windows')).toBeVisible()
+    expect(document.querySelector('.empty-result-warning .lucide-clock3')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing to clean/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Some categories could not be analyzed')).not.toBeInTheDocument()
+    expect(screen.queryByText('0 B')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('keeps analyzed files usable while a selected Windows analysis is still running', async () => {
+    const user = userEvent.setup()
+    const pendingCategory = { ...nativeCategory('windows_components', 'Windows component cleanup', false), selected: true,
+      analysis_pending: true, analysis_error: false, reason: 'Windows is still analyzing update cleanup.' }
+    const { api, snapshot, update } = bridge([pendingCategory])
+    api.scan.mockImplementationOnce(async () => {
+      const temporary = { ...initial().categories.find(category => category.id === 'user_temp')!, files: 3, bytes: 2048 }
+      update({ phase: 'ready', scan_id: 'mixed-pending', categories: [temporary, pendingCategory] })
+      return snapshot()
+    })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled())
+    expect(screen.getByText('Waiting for Windows')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    expect(within(screen.getByRole('dialog', { name: 'Remove 2 KiB?' })).getByText('Temporary files')).toBeVisible()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['analyze', 'Windows is still analyzing cleanup options.', 'Windows maintenance is still running.'],
+    ['cleanup', 'Windows maintenance is still running.', 'Windows is still analyzing cleanup options.'],
+  ] as const)('describes an ongoing background %s operation without confusing analysis and cleanup', async (operation, message, otherMessage) => {
+    const { api, update } = bridge()
+    update({ phase: 'cancelled', maintenance: { action_id: 'windows_components', operation, phase: 'finishing', elapsed_seconds: 12 } })
+    render(<App />)
+    await connected()
+    expect(screen.getByText(message)).toBeVisible()
+    expect(screen.queryByText(otherMessage)).not.toBeInTheDocument()
+    expect(api.scan).not.toHaveBeenCalled()
     expect(api.clean).not.toHaveBeenCalled()
   })
 

@@ -14,6 +14,7 @@ import threading
 from urllib.parse import unquote, urlsplit
 
 from . import APP_NAME
+from .elevation import ElevationError, ensure_administrator
 from .service import CleanerService, ServiceError
 from .windows import local_app_data
 
@@ -185,6 +186,12 @@ def main():
     multiprocessing.freeze_support()
     if os.name != "nt":
         _fatal("Clearspace currently supports Windows 10/11 only.")
+        return 1
+    try:
+        if not ensure_administrator():
+            return 0
+    except ElevationError as error:
+        _fatal(str(error))
         return 1
     _enable_per_monitor_dpi()
     if not (ASSETS / "index.html").is_file():

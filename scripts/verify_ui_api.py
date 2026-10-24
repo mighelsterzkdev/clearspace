@@ -10,7 +10,7 @@ from clearspace.engine import Category, Cleaner
 from clearspace.gui import AssetServer, DesktopApi
 from clearspace.service import CleanerService
 from clearspace.recycle_bin import RecycleBinSnapshot
-from clearspace.maintenance import ActionSnapshot, ActionResult
+from clearspace.maintenance import ActionSnapshot, ActionResult, MaintenanceBusyError
 
 
 def main():
@@ -32,11 +32,14 @@ def main():
             def __init__(self, size):
                 self.size = size
                 self.calls = 0
+                self.deferred = False
 
-            def query(self):
+            def query(self, cancel=None):
                 return ActionSnapshot(self.calls == 0, self.size, "Owned verification action; no user data is changed.")
 
             def clean(self, snapshot, cancel=None):
+                if self.deferred:
+                    raise MaintenanceBusyError("Earlier Windows analysis is still running. This cleanup has not started.")
                 self.calls += 1
                 return ActionResult(True, None if self.size is None else 0, "Verification cleanup completed.")
 
@@ -85,6 +88,12 @@ def main():
                     # Headless verification never opens a visible Settings app.
                     settings_calls += 1
                     result = api.get_state()
+                elif method == "native_mode":
+                    mode = request.get("args", [None])[0]
+                    if mode not in {"success", "deferred"}:
+                        raise ValueError("Unsupported verification mode")
+                    native_actions["windows_components"].deferred = mode == "deferred"
+                    result = True
                 elif method in allowed:
                     result = allowed[method](*request.get("args", []))
                 else:

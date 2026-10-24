@@ -4,11 +4,13 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
-## Version 0.4.0
+## Version 0.4.1
 
 - No minimum file age: recent temporary files and caches are eligible too.
 - 34 categories covering the Recycle Bin, temporary files, diagnostics, caches, recent histories, and native Windows maintenance.
 - Windows update/component cleanup through DISM, plus Delivery Optimization cache cleanup through its Windows module.
+- Slow Windows analyses have their own wait budget. Native operations queue without overlap; unfinished work is marked pending instead of a cleanup failure.
+- One launcher: `start.cmd`. Windows asks for administrator permission when the desktop app opens.
 - Recent-file shortcuts, recent-document records, Run dialog commands, and File Explorer search history.
 - Expanded crash dumps and Windows setup/update logs, plus Steam and Slack rendering caches.
 - A direct category list with **Select all** and **Clear selection**. Unavailable categories stay collapsed.
@@ -20,7 +22,9 @@ Clearspace removes selected data permanently after the review confirmation. Recy
 
 Original documents, installed applications, browser cookies/passwords, and pinned Jump List items are kept. Clearspace clears only specific selected history values in the registry; it does not repair or broadly prune the registry. Local Windows 10/11 x64 installations are supported.
 
-Windows update/component and Delivery Optimization cleanup require administrator permission. Open **`start-admin.cmd`** to launch the app through Windows' elevation prompt. These operations use Windows tools, preserve pinned Delivery Optimization downloads, never use DISM `/ResetBase`, and do not restart the computer. A pending Windows update/restart can prevent component cleanup. Once native maintenance starts, Stop prevents subsequent actions; the running Windows operation must finish.
+Open **`start.cmd`** or the portable executable. The desktop app requests administrator permission automatically; cancelling the Windows prompt closes the app. An already elevated app continues without another prompt. Windows update/component and Delivery Optimization cleanup use Windows tools, preserve pinned downloads, never use DISM `/ResetBase`, and do not restart the computer. A pending Windows update/restart can prevent component cleanup. Once native maintenance starts, Stop prevents subsequent actions; the running Windows operation must finish.
+
+Component-store analysis can take several minutes. Its native wait does not consume the filesystem analysis budget. Progress distinguishes analysis, cleanup and waiting for a previous command. Stop can end the app's wait without terminating Windows servicing; any Windows process still running is shown separately. If the wait limit is reached, the result says **Pending**, and a new analysis is required before unfinished cleanup can run.
 
 The **Recent apps in Windows Search** list is separate from the `Recent` shortcuts folder and RecentDocs records. The app's **Open search history settings** button opens the supported Windows page; choose **Clear device search history** there. Clearspace does not claim that clearing Run/Explorer histories clears that modern app list, and does not reset CloudStore, UserAssist, pinned lists, or tracking preferences.
 
@@ -33,7 +37,7 @@ Native maintenance may report no exact removed size. The result lists completed/
 
 Open `start.cmd` for the desktop app. The included portable Windows folder can run without installing Python or Node.js; Microsoft Edge WebView2 Runtime is required and normally comes with Windows 11.
 
-For a source checkout, install Python 3.12 or newer, run `install.cmd`, then open `start.cmd`. Generated frontend assets are included, so Node.js is needed only when changing the interface.
+For a source checkout, install Python 3.12 or newer, run `scripts\install.cmd`, then open `start.cmd`. Generated frontend assets are included, so Node.js is needed only when changing the interface. Build and setup helpers live in `scripts/`; the root contains only one application launcher.
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m clearspace scan

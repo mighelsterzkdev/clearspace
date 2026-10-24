@@ -4,6 +4,7 @@ NATIVE_ACTION_IDS = frozenset({
     "windows_components", "delivery_optimization", "run_history",
     "explorer_search_history", "recent_document_history",
 })
+MAINTENANCE_ACTION_IDS = frozenset({"windows_components", "delivery_optimization"})
 
 
 def create_provider(identifier):

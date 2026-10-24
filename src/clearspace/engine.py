@@ -22,7 +22,8 @@ import uuid
 
 from . import windows
 from .recycle_bin import RecycleBinSnapshot, WindowsRecycleBin
-from .actions import NATIVE_ACTION_IDS, create_provider
+from .actions import MAINTENANCE_ACTION_IDS, NATIVE_ACTION_IDS, create_provider
+from .maintenance import MaintenanceDeferredError
 
 
 DAY = 24 * 60 * 60
@@ -92,11 +93,13 @@ class CategoryStats:
     actions: int = 0
     size_known: bool = True
     analysis_error: bool = False
+    analysis_pending: bool = False
 
     def to_dict(self) -> dict:
         return {"category_id": self.category_id, "files": self.files,
                 "bytes": self.bytes, "skipped": self.skipped, "reason": self.reason,
-                "actions": self.actions, "size_known": self.size_known, "analysis_error": self.analysis_error}
+                "actions": self.actions, "size_known": self.size_known, "analysis_error": self.analysis_error,
+                "analysis_pending": self.analysis_pending}
 
 
 @dataclass(frozen=True)
@@ -294,6 +297,7 @@ class Cleaner:
             truncated = False
             bin_snapshot = None
             native_plans = []
+            native_wait_seconds = 0.0
             seen_files: set[windows.FileIdentity] = set()
             seen_directories: set[windows.FileIdentity] = set()
             last_report = 0.0
@@ -312,7 +316,7 @@ class Cleaner:
                 if _cancelled(cancel):
                     return True
                 if (len(entries) >= self._max_files or visited >= self._max_visited
-                        or time.monotonic() - started >= self._max_scan_seconds):
+                        or time.monotonic() - started - native_wait_seconds >= self._max_scan_seconds):
                     truncated = True
                     return True
                 return False
@@ -330,8 +334,11 @@ class Cleaner:
                     continue
 
                 if category.native_action in NATIVE_ACTION_IDS:
+                    report(category.id, True)
+                    query_started = time.monotonic()
                     try:
-                        snapshot = self._native_actions[category.native_action].query()
+                        provider = self._native_actions[category.native_action]
+                        snapshot = provider.query(cancel=cancel) if category.native_action in MAINTENANCE_ACTION_IDS else provider.query()
                         if type(snapshot.pending) is not bool or (snapshot.bytes is not None and (
                                 type(snapshot.bytes) is not int or snapshot.bytes < 0)):
                             raise ValueError("Invalid native cleanup analysis.")
@@ -341,9 +348,16 @@ class Cleaner:
                         total_bytes += current_bytes
                         stats.append(CategoryStats(category.id, bytes=current_bytes, reason=snapshot.detail,
                                                    actions=int(snapshot.pending), size_known=snapshot.bytes is not None))
+                    except MaintenanceDeferredError as error:
+                        message = " ".join(str(error).split())[:400]
+                        stats.append(CategoryStats(category.id, reason=message, size_known=False, analysis_pending=True))
                     except (OSError, ValueError) as error:
                         message = " ".join(str(error).split())[:400] or "Windows could not analyze this cleanup."
                         stats.append(CategoryStats(category.id, reason=message, size_known=False, analysis_error=True))
+                    finally:
+                        # Native analysis has its own bounded waits. A slow
+                        # Windows command must not exhaust the file-walk budget.
+                        native_wait_seconds += max(0.0, time.monotonic() - query_started)
                     report(category.id, True)
                     continue
 
@@ -479,6 +493,11 @@ class Cleaner:
                         for category in categories}
             issues: list[dict[str, str]] = []
             action_results = []
+            for found in plan.category_stats:
+                if found.category_id in selected and found.analysis_pending:
+                    category = selected[found.category_id]
+                    action_results.append({"category_id": category.id, "title": category.label,
+                                           "status": "deferred", "freed_bytes": None, "detail": found.reason})
             processed = 0
             last_report = 0.0
 
@@ -587,6 +606,9 @@ class Cleaner:
                     status = "completed" if completed else "skipped" if _cancelled(cancel) else "failed"
                     if native_result.freed_bytes is not None:
                         outcomes[category.id]["freed_bytes"] += native_result.freed_bytes
+                except MaintenanceDeferredError as error:
+                    status, detail = "deferred", " ".join(str(error).split())[:400]
+                    native_result = None
                 except (OSError, ValueError) as error:
                     status, detail = "failed", " ".join(str(error).split())[:400] or "Windows could not finish this cleanup."
                     native_result = None

@@ -6,14 +6,16 @@ import base64
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import subprocess
-from threading import Event
+from threading import Event, Thread
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
 from clearspace import maintenance
 from clearspace.maintenance import (
     ActionResult, ActionSnapshot, MaintenanceError, WindowsComponentCleanup,
-    WindowsDeliveryOptimization,
+    WindowsDeliveryOptimization, MaintenanceBusyError, MaintenanceCancelledError,
+    MaintenanceStillRunningError, MaintenanceDeferredError,
 )
 
 
@@ -92,7 +94,8 @@ class MaintenanceTests(unittest.TestCase):
         command, options = runner.calls[0]
         self.assertEqual(command, (r"C:\Windows\System32\dism.exe", "/Online", "/Cleanup-Image",
                                    "/AnalyzeComponentStore", "/English", "/NoRestart"))
-        self.assertEqual(options, {"timeout": maintenance.QUERY_TIMEOUT})
+        self.assertEqual(options, {"timeout": maintenance.COMPONENT_QUERY_TIMEOUT,
+                                   "cancel": None, "action_id": "windows_components", "operation": "analyze"})
 
     def test_component_query_no_recommendation_does_not_schedule_action(self):
         runner = FakeRunner(component_report("No"))
@@ -189,7 +192,8 @@ class MaintenanceTests(unittest.TestCase):
         self.assertIn("DeliveryOptimization\\Get-DeliveryOptimizationPerfSnap", script)
         self.assertNotIn("Delete-DeliveryOptimizationCache -Force", script)
         self.assertNotIn("ExecutionPolicy", script)
-        self.assertEqual(options, {"timeout": maintenance.QUERY_TIMEOUT, "powershell": True})
+        self.assertEqual(options, {"timeout": maintenance.QUERY_TIMEOUT, "powershell": True,
+                                   "cancel": None, "action_id": "delivery_optimization", "operation": "analyze"})
 
     def test_delivery_unknown_size_stays_unknown_and_empty_cache_is_not_pending(self):
         unknown = self.delivery(FakeRunner(command_result(output='{"bytes":null}'))).query()
@@ -261,24 +265,253 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(start.call_args.kwargs["env"]["PSModulePath"],
                          r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules")
 
-    def test_timeout_never_terminates_windows_servicing_and_prevents_overlapping_work(self):
-        child = MagicMock()
-        child.wait.side_effect = subprocess.TimeoutExpired("dism.exe", 5)
-        watcher = MagicMock()
+    def test_dism_analysis_allows_more_than_the_previous_45_second_limit(self):
+        self.assertGreaterEqual(maintenance.COMPONENT_QUERY_TIMEOUT, 300)
+        self.assertLessEqual(maintenance.QUERY_TIMEOUT, 60)
+
+    def test_stopped_queries_raise_typed_cancellation_without_running_native_commands(self):
+        cancel = Event()
+        cancel.set()
+        runner = FakeRunner()
+        for provider in (self.components(runner), self.delivery(runner)):
+            with self.subTest(provider=provider), self.assertRaises(MaintenanceCancelledError):
+                provider.query(cancel=cancel)
+        self.assertEqual(runner.calls, [])
+
+    def test_clean_cancellation_while_queued_is_an_unstarted_action(self):
+        runner = FakeRunner()
+        runner.run = MagicMock(side_effect=MaintenanceCancelledError("Stopped"))
+        for provider in (self.components(runner), self.delivery(runner)):
+            result = provider.clean(ActionSnapshot(True))
+            self.assertFalse(result.completed)
+            self.assertIn("before", result.detail)
+
+
+class FakeProcess:
+    """An in-memory child process; controlled waits never run subprocesses."""
+
+    def __init__(self, *, finished=False):
+        self.finished = Event()
+        self.wait_entered = Event()
+        self.returncode = None
+        self.kill = MagicMock()
+        self.terminate = MagicMock()
+        if finished:
+            self.finish()
+
+    def finish(self):
+        self.returncode = 0
+        self.finished.set()
+
+    def wait(self, timeout=None):
+        self.wait_entered.set()
+        if not self.finished.wait(timeout):
+            raise subprocess.TimeoutExpired("fake-windows-maintenance", timeout)
+        return self.returncode
+
+
+class NativeQueueTests(unittest.TestCase):
+    def setUp(self):
+        self.path_patch = patch.object(maintenance.windows, "windows_directory",
+                                      return_value=Path(r"C:\Windows"))
+        self.path_patch.start()
+        self.addCleanup(self.path_patch.stop)
+
+    def assert_reaped(self, runner):
+        deadline = time.monotonic() + 2
+        while runner.activity() is not None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIsNone(runner.activity())
+
+    def start_timed_out_analysis(self, runner):
+        with self.assertRaises(MaintenanceStillRunningError) as caught:
+            runner.run((r"C:\Windows\System32\dism.exe", "/AnalyzeComponentStore"),
+                       timeout=0.01, action_id="windows_components", operation="analyze")
+        self.assertIsInstance(caught.exception, MaintenanceDeferredError)
+        self.assertEqual(caught.exception.action_id, "windows_components")
+        self.assertEqual(caught.exception.operation, "analyze")
+        self.assertIn("still analyzing", str(caught.exception))
+        self.assertIn("No cleanup was started by this analysis", str(caught.exception))
+        return caught.exception
+
+    def test_late_component_analysis_queues_delivery_then_runs_it_after_completion(self):
         runner = maintenance._CommandRunner()
-        with patch.object(maintenance.subprocess, "Popen", return_value=child), \
-                patch.object(maintenance, "Thread", return_value=watcher) as thread_start:
-            with self.assertRaisesRegex(MaintenanceError, "still running"):
-                runner.run((r"C:\Windows\System32\dism.exe", "/Online"), timeout=5)
-            with self.assertRaisesRegex(MaintenanceError, "still running"):
-                runner.run((r"C:\Windows\System32\dism.exe", "/Online"), timeout=5)
+        previous = FakeProcess()
+        following = FakeProcess(finished=True)
+        results, errors = [], []
+        queued = Event()
+
+        def next_operation():
+            queued.set()
+            try:
+                results.append(runner.run((r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",),
+                                          timeout=1, queue_timeout=2, powershell=True,
+                                          action_id="delivery_optimization", operation="cleanup"))
+            except Exception as error:
+                errors.append(error)
+
+        with patch.object(maintenance.subprocess, "Popen", side_effect=[previous, following]) as start:
+            self.start_timed_out_analysis(runner)
+            self.assertEqual(runner.activity()["phase"], "finishing")
+            self.assertEqual(runner.activity()["operation"], "analyze")
+            thread = Thread(target=next_operation)
+            thread.start()
+            try:
+                self.assertTrue(queued.wait(1))
+                self.assertEqual(start.call_count, 1)
+            finally:
+                previous.finish()
+                thread.join(timeout=3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(start.call_count, 2)
+        previous.kill.assert_not_called()
+        previous.terminate.assert_not_called()
+        self.assert_reaped(runner)
+
+    def test_queue_timeout_is_deferred_and_does_not_start_second_process(self):
+        runner = maintenance._CommandRunner()
+        previous = FakeProcess()
+        with patch.object(maintenance.subprocess, "Popen", return_value=previous) as start:
+            try:
+                self.start_timed_out_analysis(runner)
+                with self.assertRaises(MaintenanceBusyError) as caught:
+                    runner.run(("fixed-next-command",), timeout=1, queue_timeout=0.01,
+                               action_id="delivery_optimization", operation="cleanup")
+                self.assertIsInstance(caught.exception, MaintenanceDeferredError)
+                self.assertEqual(caught.exception.status, "waiting")
+                self.assertEqual(caught.exception.action_id, "delivery_optimization")
+                self.assertEqual(start.call_count, 1)
+            finally:
+                previous.finish()
+        self.assert_reaped(runner)
+
+    def test_cancellation_while_queued_prevents_following_native_action(self):
+        runner = maintenance._CommandRunner()
+        previous = FakeProcess()
+        cancel, queued = Event(), Event()
+        errors = []
+
+        def next_operation():
+            queued.set()
+            try:
+                runner.run(("fixed-next-command",), timeout=1, queue_timeout=2,
+                           cancel=cancel, action_id="delivery_optimization", operation="cleanup")
+            except Exception as error:
+                errors.append(error)
+
+        with patch.object(maintenance.subprocess, "Popen", return_value=previous) as start:
+            self.start_timed_out_analysis(runner)
+            thread = Thread(target=next_operation)
+            thread.start()
+            try:
+                self.assertTrue(queued.wait(1))
+                cancel.set()
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0], MaintenanceCancelledError)
+                self.assertEqual(start.call_count, 1)
+                self.assertIsNotNone(runner.activity())
+            finally:
+                previous.finish()
+                thread.join(timeout=3)
+        self.assert_reaped(runner)
+
+    def test_stop_during_analysis_releases_caller_but_does_not_kill_windows(self):
+        runner = maintenance._CommandRunner()
+        child = FakeProcess()
+        cancel = Event()
+
+        def start(*args, **kwargs):
+            cancel.set()
+            return child
+
+        with patch.object(maintenance.subprocess, "Popen", side_effect=start):
+            try:
+                with self.assertRaises(MaintenanceStillRunningError) as caught:
+                    runner.run(("fixed-analysis",), timeout=300, cancel=cancel,
+                               action_id="windows_components", operation="analyze")
+                self.assertIn("read-only", str(caught.exception))
+                self.assertEqual(runner.activity()["phase"], "finishing")
+                child.kill.assert_not_called()
+                child.terminate.assert_not_called()
+            finally:
+                child.finish()
+        self.assert_reaped(runner)
+
+    def test_stop_after_cleanup_submission_waits_for_native_completion(self):
+        runner = maintenance._CommandRunner()
+        child = FakeProcess(finished=True)
+        cancel = Event()
+
+        def start(*args, **kwargs):
+            cancel.set()
+            return child
+
+        with patch.object(maintenance.subprocess, "Popen", side_effect=start):
+            result = runner.run(("fixed-cleanup",), timeout=1, cancel=cancel,
+                                action_id="delivery_optimization", operation="cleanup")
+        self.assertEqual(result.returncode, 0)
         child.kill.assert_not_called()
         child.terminate.assert_not_called()
-        watcher.start.assert_called_once()
-        # Close the owned fake process output since the mocked reaper did not run.
-        child.wait.side_effect = None
-        runner._reap(child, thread_start.call_args.kwargs["args"][1])
-        self.assertIsNone(runner._active)
+        self.assert_reaped(runner)
+
+    def test_pre_cancelled_runner_never_spawns_process(self):
+        cancel = Event()
+        cancel.set()
+        with patch.object(maintenance.subprocess, "Popen") as start:
+            with self.assertRaises(MaintenanceCancelledError):
+                maintenance._CommandRunner().run(("fixed-command",), timeout=1, cancel=cancel)
+        start.assert_not_called()
+
+    def test_stop_while_cleanup_is_running_waits_for_its_result(self):
+        runner = maintenance._CommandRunner()
+        child = FakeProcess()
+        cancel = Event()
+        results, errors = [], []
+
+        def cleanup():
+            try:
+                results.append(runner.run(("fixed-cleanup",), timeout=2, cancel=cancel,
+                                          action_id="windows_components", operation="cleanup"))
+            except Exception as error:
+                errors.append(error)
+
+        with patch.object(maintenance.subprocess, "Popen", return_value=child):
+            thread = Thread(target=cleanup)
+            thread.start()
+            try:
+                self.assertTrue(child.wait_entered.wait(1))
+                cancel.set()
+                thread.join(timeout=0.02)
+                self.assertTrue(thread.is_alive())
+                self.assertEqual(runner.activity()["operation"], "cleanup")
+            finally:
+                child.finish()
+                thread.join(timeout=2)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].returncode, 0)
+        self.assert_reaped(runner)
+
+    def test_cleanup_timeout_reports_running_cleanup_without_claiming_completion(self):
+        runner = maintenance._CommandRunner()
+        child = FakeProcess()
+        with patch.object(maintenance.subprocess, "Popen", return_value=child):
+            try:
+                with self.assertRaises(MaintenanceStillRunningError) as caught:
+                    runner.run(("fixed-cleanup",), timeout=0.01,
+                               action_id="windows_components", operation="cleanup")
+                self.assertIn("system cleanup is still running", str(caught.exception))
+                self.assertNotIn("No cleanup was started", str(caught.exception))
+                self.assertEqual(runner.activity()["operation"], "cleanup")
+                child.kill.assert_not_called()
+                child.terminate.assert_not_called()
+            finally:
+                child.finish()
+        self.assert_reaped(runner)
 
 
 if __name__ == "__main__":
