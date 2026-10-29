@@ -14,6 +14,8 @@ from . import __version__
 from .engine import Cleaner
 from .windows import local_app_data
 
+THEMES = ("system", "dark", "light")
+
 
 class ServiceError(ValueError):
     """A bounded message suitable for display in the local interface."""
@@ -31,6 +33,7 @@ class CleanerService:
         self._categories = {category.id: category for category in self._cleaner.categories}
         defaults = [item.id for item in self._categories.values() if item.default_selected and item.available]
         self._selected = self._read_selection(defaults)
+        self._theme = self._read_theme()
         self._state = {
             "version": __version__, "phase": "idle", "categories": [], "scan_id": None,
             "scanned_at": None, "progress": self._empty_progress(), "result": None, "error": None,
@@ -59,6 +62,17 @@ class CleanerService:
             return selected
         except (OSError, ValueError):
             return set(defaults)
+
+    def _read_theme(self):
+        try:
+            path = self._data_dir / "appearance.json"
+            if path.stat().st_size > 4096:
+                return "system"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            theme = value.get("theme") if isinstance(value, dict) else None
+            return theme if theme in THEMES else "system"
+        except (OSError, ValueError):
+            return "system"
 
     def _write_json(self, name, value):
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +110,7 @@ class CleanerService:
     def get_state(self):
         with self._lock:
             state = deepcopy(self._state)
+            state["theme"] = self._theme
             from .maintenance import maintenance_activity
             activity = maintenance_activity()
             state["maintenance"] = deepcopy(activity)
@@ -140,6 +155,24 @@ class CleanerService:
             except OSError:
                 self._state["error"] = "Your selection is ready, but preferences could not be saved."
             return self.get_state()
+
+    def set_theme(self, theme):
+        if theme not in THEMES:
+            raise ServiceError("Choose a supported theme.")
+        with self._lock:
+            if self._closed:
+                raise ServiceError("Clearspace is closing.")
+            # Appearance is independent of any running analysis or cleanup.
+            self._theme = theme
+            try:
+                self._write_json("appearance.json", {"version": 1, "theme": theme})
+            except OSError:
+                self._state["error"] = "The theme changed, but it could not be saved."
+            return self.get_state()
+
+    def theme(self):
+        with self._lock:
+            return self._theme
 
     def _progress(self, value):
         with self._lock:

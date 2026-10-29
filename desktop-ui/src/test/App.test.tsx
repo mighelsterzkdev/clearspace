@@ -58,6 +58,7 @@ function bridge(extraCategories: Category[] = []) {
       return snapshot()
     }),
     open_search_settings: vi.fn(async () => snapshot()),
+    set_theme: vi.fn(async (theme: 'system' | 'dark' | 'light') => { state = { ...state, theme }; return snapshot() }),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
   } satisfies CleanerApi
   window.pywebview = { api }
@@ -67,6 +68,22 @@ function bridge(extraCategories: Category[] = []) {
 async function connected() {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled())
 }
+
+describe('appearance', () => {
+  it('cycles the saved theme and applies it to the document', async () => {
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Theme: match Windows/ }))
+    await waitFor(() => expect(api.set_theme).toHaveBeenCalledWith('light'))
+    await waitFor(() => expect(document.documentElement).not.toHaveClass('dark'))
+    await user.click(screen.getByRole('button', { name: /Theme: light/ }))
+    await waitFor(() => expect(api.set_theme).toHaveBeenCalledWith('dark'))
+    await waitFor(() => expect(document.documentElement).toHaveClass('dark'))
+    expect(screen.getByRole('button', { name: /Theme: dark/ })).toBeEnabled()
+  })
+})
 
 describe('cleanup flow', () => {
   it('starts with the selected profile and requires analysis before cleaning', async () => {
@@ -492,7 +509,7 @@ describe('Windows cleanup actions', () => {
     expect(within(list).getByText('Windows maintenance is still running. Analyze again after it finishes.')).toBeVisible()
     expect(within(list).queryByText('Failed')).not.toBeInTheDocument()
     expect(document.querySelector('.result-icon-warning .lucide-clock3')).toBeInTheDocument()
-    expect(document.querySelector('.cleanup-action-list .lucide-clock3')).toHaveClass('text-amber-300')
+    expect(document.querySelector('.cleanup-action-list .lucide-clock3')).toHaveClass('text-warning')
     expect(screen.queryByText('0 B')).not.toBeInTheDocument()
     expect(screen.queryByText(/0 cleanup actions completed/)).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Cleanup complete' })).not.toBeInTheDocument()

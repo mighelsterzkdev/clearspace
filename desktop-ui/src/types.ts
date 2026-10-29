@@ -1,3 +1,4 @@
+export type Theme = 'system' | 'dark' | 'light'
 export type Phase = 'idle' | 'scanning' | 'ready' | 'cleaning' | 'completed' | 'cancelled' | 'error'
 export interface Category {
   id: string; title: string; description: string; selected: boolean; available: boolean;
@@ -16,7 +17,7 @@ export interface CleanupResult {
 export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
   progress: { checked: number; files: number; bytes: number; current: string | null; message?: string | null };
-  result: CleanupResult | null; error: string | null
+  result: CleanupResult | null; error: string | null; theme?: Theme
   maintenance?: { action_id: string; operation: 'analyze' | 'cleanup'; phase: 'running' | 'finishing'; elapsed_seconds: number } | null
 }
 export interface FileItem { name: string; path: string; bytes: number }
@@ -30,6 +31,7 @@ export interface CleanerApi {
   clean(scanId: string, ids: string[]): Promise<StateResponse>;
   open_search_settings(): Promise<StateResponse>;
   get_files(scanId: string, categoryId: string, offset: number): Promise<FilesResponse>;
+  set_theme(theme: Theme): Promise<StateResponse>;
 }
 declare global { interface Window { pywebview?: { api: CleanerApi } } }
 export const initialState: CleanerState = {

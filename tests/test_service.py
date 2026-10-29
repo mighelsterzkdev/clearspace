@@ -145,6 +145,26 @@ class ServiceTests(unittest.TestCase):
         state["categories"][0]["selected"] = False
         self.assertTrue(service.get_state()["categories"][0]["selected"])
 
+    def test_theme_is_validated_persisted_and_allowed_while_busy(self):
+        service = self.service()
+        self.assertEqual(service.get_state()["theme"], "system")
+        for theme in ("blue", None, ["dark"]):
+            with self.assertRaises(ServiceError):
+                service.set_theme(theme)
+        self.assertFalse(DesktopApi(service).set_theme("../dark")["ok"])
+        self.assertEqual(service.set_theme("light")["theme"], "light")
+        stored = json.loads((self.data_dir / "appearance.json").read_text())
+        self.assertEqual(stored, {"version": 1, "theme": "light"})
+        self.assertEqual(self.service().get_state()["theme"], "light")
+        (self.data_dir / "appearance.json").write_text('{"theme": "neon"}')
+        self.assertEqual(self.service().get_state()["theme"], "system")
+        engine = ControlledCleaner(blocked=True)
+        busy = self.service(engine)
+        busy.scan()
+        self.assertEqual(busy.set_theme("dark")["phase"], "scanning")
+        busy.cancel()
+        wait_until(busy, "cancelled")
+
     def test_mvp_preferences_gain_new_windows_recommendations_once(self):
         (self.data_dir / "settings.json").write_text(json.dumps({"version": 1, "selected": ["pip_cache"]}))
         cleaner = ControlledCleaner()

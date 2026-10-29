@@ -35,7 +35,7 @@ export function CleanupResult({ result }: { result: Result }) {
           const status = action.status === 'completed' ? 'Completed' : action.status === 'failed' ? 'Failed' : action.status === 'deferred' ? 'Pending' : 'Skipped'
           const detail = action.detail || (action.status === 'deferred' ? 'Windows maintenance is still running. Analyze again after it finishes.' : null)
           return <li key={action.category_id}>
-            <Icon className={action.status === 'failed' || action.status === 'deferred' ? 'text-amber-300' : action.status === 'completed' ? 'text-emerald-400' : 'text-muted-foreground'} aria-hidden="true" />
+            <Icon className={action.status === 'failed' || action.status === 'deferred' ? 'text-warning' : action.status === 'completed' ? 'text-success' : 'text-muted-foreground'} aria-hidden="true" />
             <div><p><strong>{action.title}</strong><span>{status}{action.freed_bytes !== null && action.freed_bytes > 0 ? ` · ${formatBytes(action.freed_bytes)}` : ''}</span></p>
               {detail ? <span>{detail}</span> : null}
             </div>
