@@ -134,6 +134,8 @@ def _kernel32():
     api.Process32NextW.restype = wintypes.BOOL
     api.GetWindowsDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
     api.GetWindowsDirectoryW.restype = wintypes.UINT
+    api.GetLongPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    api.GetLongPathNameW.restype = wintypes.DWORD
     return api
 
 
@@ -143,6 +145,33 @@ def _error() -> OSError:
 
 def _path_key(path: Path | str) -> str:
     return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _long_path(text: str) -> str:
+    api = _kernel32()
+    size = api.GetLongPathNameW(text, None, 0)
+    if 0 < size <= 32768:
+        buffer = ctypes.create_unicode_buffer(size)
+        actual = api.GetLongPathNameW(text, buffer, size)
+        if 0 < actual < size:
+            return buffer.value
+    return text
+
+
+@lru_cache(maxsize=4096)
+def _long_directory(text: str) -> str:
+    return _long_path(text)
+
+
+def _long_path_keys(path: Path):
+    """Expand 8.3 aliases such as RUNNER~1 without following reparse points.
+
+    GetFinalPathNameByHandle always reports long names, so a requested path
+    given in short form must be expanded before the two can be compared. The
+    cached parent is only a fast first guess; a mismatch re-expands it fully.
+    """
+    yield _path_key(Path(_long_directory(str(path.parent))) / path.name)
+    yield _path_key(_long_path(str(path)))
 
 
 def supported_path(path: Path) -> Path:
@@ -270,7 +299,8 @@ def open_handle(path: Path, *, directory: bool = False, delete: bool = False) ->
             raise UnsafePathError("Reparse points are excluded.")
         if snapshot.directory != directory:
             raise UnsafePathError("The entry type changed.")
-        if _path_key(handle.final_path()) != _path_key(path):
+        final = _path_key(handle.final_path())
+        if final != _path_key(path) and final not in _long_path_keys(path):
             raise UnsafePathError("The opened path does not match the expected location.")
         return handle
     except BaseException:
