@@ -40,7 +40,7 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSe
         <span>{size}</span>
         <span>{detail}</span>
       </div>
-      {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon" aria-label={t('View files for {title}', { title: t(category.title) })} title={t('View files')}
+      {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon-sm" aria-label={t('View files for {title}', { title: t(category.title) })} title={t('View files')}
         disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>}
     </div>
   </li>

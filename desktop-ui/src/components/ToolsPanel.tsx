@@ -172,7 +172,7 @@ function DisksCard({ tools, connected, actions }: Props & { tools: ToolsState })
   return <div className="tool-card">
     <div className="tool-row">
       <ToolHeading icon={HardDrive} title="Disk health" description="What Windows reports about each SSD and hard drive." />
-      <div className="tool-side"><Button variant="ghost" size="icon" aria-label={t('Check again')} title={t('Check again')} disabled={!connected || disks.status === 'running'} onClick={actions.check_disks}>
+      <div className="tool-side"><Button variant="ghost" size="icon-sm" aria-label={t('Check again')} title={t('Check again')} disabled={!connected || disks.status === 'running'} onClick={actions.check_disks}>
         {disks.status === 'running' ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}</Button></div>
     </div>
     {disks.status === 'failed' ? <p className="tool-error tool-body">{t(disks.error ?? '')}</p> : null}
@@ -191,7 +191,7 @@ function StartupCard({ tools, connected, actions }: Props & { tools: ToolsState 
   return <div className="tool-card">
     <div className="tool-row">
       <ToolHeading icon={Power} title="Startup apps" description="Programs that open with Windows. Turning one off makes startup faster; the program stays installed." />
-      <div className="tool-side"><Button variant="ghost" size="icon" aria-label={t('Refresh list')} title={t('Refresh list')} disabled={!connected} onClick={actions.list_startup}><RefreshCw /></Button></div>
+      <div className="tool-side"><Button variant="ghost" size="icon-sm" aria-label={t('Refresh list')} title={t('Refresh list')} disabled={!connected} onClick={actions.list_startup}><RefreshCw /></Button></div>
     </div>
     {startup.status === 'failed' ? <p className="tool-error tool-body">{t(startup.error ?? '')}</p> : null}
     {startup.items.length ? <ul className="tool-body startup-list" aria-label={t('Startup apps')}>
