@@ -4,6 +4,7 @@ import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { CategoryRow } from './components/CategoryRow'
 import { ThemeToggle, useThemeClass } from './components/ThemeToggle'
+import { WindowControls, dragFromHeader, maximizeFromHeader } from './components/TitleBar'
 import { CategoryToolbar } from './components/CategoryToolbar'
 import { CleanupResult } from './components/CleanupResult'
 import { FilesDialog, type FileSelection } from './components/FilesDialog'
@@ -88,7 +89,7 @@ export default function App() {
   }
 
   return <div className="app-shell">
-    <header className="app-header"><div className="app-brand"><HardDrive className="size-5 text-muted-foreground" aria-hidden="true" /><h1>Clearspace</h1></div><div className="app-header-actions"><span className="app-caption">Windows cleaner</span><ThemeToggle theme={theme} disabled={!connected} onChange={value => void invoke('set_theme', value)} /></div></header>
+    <header className={connected ? 'app-header with-window-controls' : 'app-header'} onMouseDown={dragFromHeader} onDoubleClick={maximizeFromHeader}>{connected ? <WindowControls /> : null}<div className="app-brand"><HardDrive className="size-5 text-muted-foreground" aria-hidden="true" /><h1>Clearspace</h1></div><div className="app-header-actions"><span className="app-caption">Windows cleaner</span><ThemeToggle theme={theme} disabled={!connected} onChange={value => void invoke('set_theme', value)} /></div></header>
     {!connected ? <div className="notice" role="status"><CircleAlert className="size-4 shrink-0" /><span>Waiting for the desktop connection. Open Clearspace with start.cmd.</span></div> : null}
     {error || state.error ? <div className="notice notice-error" role="alert"><CircleAlert className="size-4 shrink-0" /><span>{error || state.error}</span>{error ? <Button variant="ghost" size="icon" aria-label="Dismiss error" onClick={dismissError}><X /></Button> : null}</div> : null}
     {state.maintenance && !busy ? <div className="notice" role="status"><Clock3 className="size-4 shrink-0 text-warning" aria-hidden="true" /><span>{state.maintenance.operation === 'analyze' ? 'Windows is still analyzing cleanup options.' : 'Windows maintenance is still running.'}</span></div> : null}

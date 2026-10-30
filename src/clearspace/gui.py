@@ -13,7 +13,7 @@ import sys
 import threading
 from urllib.parse import unquote, urlsplit
 
-from . import APP_NAME
+from . import APP_NAME, frame
 from .elevation import ElevationError, ensure_administrator
 from .service import CleanerService, ServiceError
 from .windows import local_app_data
@@ -63,6 +63,17 @@ class DesktopApi:
 
     def open_search_settings(self):
         return self._call(self._service.open_search_settings)
+
+    def window_action(self, action):
+        try:
+            if self._window is None:
+                raise ServiceError("The window is not ready yet.")
+            frame.window_action(self._window, action)
+            return {"ok": True}
+        except (ServiceError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except Exception:
+            return {"ok": False, "error": "The window could not respond."}
 
     def set_theme(self, theme):
         response = self._call(self._service.set_theme, theme)
@@ -244,11 +255,12 @@ def main():
         dark = _uses_dark_titlebar(service.theme())
         window = webview.create_window(
             APP_NAME, server.url, js_api=api, width=960, height=720,
-            min_size=(760, 600), background_color="#0a0a0a" if dark else "#ffffff", text_select=True,
+            min_size=(760, 600), background_color="#0a0a0a" if dark else "#ffffff", text_select=True, frameless=os.name == "nt", easy_drag=False,
         )
         api.attach(window)
         window.events.before_show += partial(_guard_navigation, window, server.url)
         window.events.before_show += partial(_apply_titlebar, window, dark)
+        window.events.before_show += partial(frame.use_custom_frame, window)
 
         def closing():
             if service.active() and not window.create_confirmation_dialog(

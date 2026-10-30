@@ -139,6 +139,13 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(api.clean(None, ["user_temp"])["ok"])
         self.assertEqual(engine.clean_calls, [])
 
+    def test_window_actions_are_validated_before_reaching_windows(self):
+        api = DesktopApi(self.service())
+        self.assertEqual(api.window_action("close"), {"ok": False, "error": "The window is not ready yet."})
+        api.attach(object())
+        for action in ("shutdown", "../close", None, ["drag"]):
+            self.assertFalse(api.window_action(action)["ok"])
+
     def test_returned_state_is_a_copy(self):
         service = self.service()
         state = service.get_state()

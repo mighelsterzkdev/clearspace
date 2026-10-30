@@ -1,8 +1,8 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse } from '../types'
+import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse, WindowAction } from '../types'
 
 function initial(): CleanerState {
   return {
@@ -82,6 +82,36 @@ describe('appearance', () => {
     await waitFor(() => expect(api.set_theme).toHaveBeenCalledWith('dark'))
     await waitFor(() => expect(document.documentElement).toHaveClass('dark'))
     expect(screen.getByRole('button', { name: /Theme: dark/ })).toBeEnabled()
+  })
+})
+
+describe('title bar', () => {
+  it('drags from the header and forwards caption buttons, but not from controls', async () => {
+    const { api } = bridge()
+    const windowAction = vi.fn(async (_action: WindowAction) => ({ ok: true as const }))
+    window.pywebview!.api.window_action = windowAction
+    render(<App />)
+    await connected()
+    const user = userEvent.setup()
+    const title = screen.getByRole('heading', { name: 'Clearspace' })
+    fireEvent.mouseDown(title, { button: 0, screenX: 100, screenY: 20 })
+    fireEvent.mouseMove(window, { screenX: 101, screenY: 21 })
+    expect(windowAction).not.toHaveBeenCalled()
+    fireEvent.mouseMove(window, { screenX: 110, screenY: 26 })
+    expect(windowAction).toHaveBeenLastCalledWith('drag')
+    fireEvent.mouseUp(window)
+    fireEvent.mouseDown(title, { button: 0, screenX: 100, screenY: 20 })
+    fireEvent.mouseUp(window)
+    fireEvent.doubleClick(title)
+    expect(windowAction.mock.calls.map(call => call[0])).toEqual(['drag', 'maximize'])
+    windowAction.mockClear()
+    await user.click(screen.getByRole('button', { name: /Theme:/ }))
+    expect(windowAction).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Maximize' }))
+    await user.click(screen.getByRole('button', { name: 'Minimize' }))
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(windowAction.mock.calls.map(call => call[0])).toEqual(['maximize', 'minimize', 'close'])
+    expect(api.set_theme).toHaveBeenCalled()
   })
 })
 

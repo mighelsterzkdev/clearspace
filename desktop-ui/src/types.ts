@@ -32,7 +32,10 @@ export interface CleanerApi {
   open_search_settings(): Promise<StateResponse>;
   get_files(scanId: string, categoryId: string, offset: number): Promise<FilesResponse>;
   set_theme(theme: Theme): Promise<StateResponse>;
+  window_action?(action: WindowAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
+export type ResizeEdge = 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+export type WindowAction = 'drag' | `resize-${ResizeEdge}` | 'minimize' | 'maximize' | 'close'
 declare global { interface Window { pywebview?: { api: CleanerApi } } }
 export const initialState: CleanerState = {
   version: '', phase: 'idle', categories: [], scan_id: null, scanned_at: null,
