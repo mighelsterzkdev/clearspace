@@ -14,6 +14,7 @@ import threading
 from urllib.parse import unquote, urlsplit
 
 from . import APP_NAME, __version__, frame, shell, updates
+from .tools import ToolError, ToolsService
 from .elevation import ElevationError, relaunch_as_administrator
 from .maintenance import is_administrator
 from .service import CleanerService, ServiceError
@@ -29,9 +30,10 @@ CSP = (
 
 
 class DesktopApi:
-    def __init__(self, service, updater=None):
+    def __init__(self, service, updater=None, tools=None):
         self._service = service
         self._updater = updater
+        self._tools = tools
         self._window = None
 
     def attach(self, window):
@@ -44,9 +46,11 @@ class DesktopApi:
                 return {"ok": True, **result}
             if isinstance(result, dict) and self._updater is not None:
                 result = {**result, "update": self._updater.snapshot()}
+            if isinstance(result, dict) and self._tools is not None:
+                result = {**result, "tools": self._tools.snapshot()}
             return {"ok": True, "state": result}
         except Exception as error:
-            text = str(error) if isinstance(error, (ServiceError, updates.UpdateError)) else "The request could not finish. Analyze again to retry."
+            text = str(error) if isinstance(error, (ServiceError, updates.UpdateError, ToolError)) else "The request could not finish. Analyze again to retry."
             return {"ok": False, "error": " ".join(text.split())[:500]}
 
     def get_state(self):
@@ -92,7 +96,7 @@ class DesktopApi:
 
     def restart_as_administrator(self):
         def restart():
-            if self._service.active():
+            if self._working():
                 raise ServiceError("Wait for the current operation or stop it first.")
             try:
                 launched = relaunch_as_administrator()
@@ -103,6 +107,47 @@ class DesktopApi:
                 self._window.destroy()
             return self._service.get_state()
         return self._call(restart)
+
+    def _tool_call(self, action, *args):
+        def run():
+            if self._tools is None:
+                raise ServiceError("Tools are not available in this copy.")
+            getattr(self._tools, action)(*args)
+            return self._service.get_state()
+        return self._call(run)
+
+    def flush_dns(self):
+        return self._tool_call("flush_dns")
+
+    def test_connection(self, target):
+        return self._tool_call("test_connection", target)
+
+    def stop_connection(self):
+        return self._tool_call("stop_connection")
+
+    def check_disks(self):
+        return self._tool_call("check_disks")
+
+    def list_startup(self):
+        return self._tool_call("list_startup")
+
+    def set_startup(self, identifier, enabled):
+        return self._tool_call("set_startup", identifier, enabled)
+
+    def check_updates(self):
+        return self._tool_call("check_updates")
+
+    def install_updates(self, identifiers):
+        return self._tool_call("install_updates", identifiers)
+
+    def stop_updates(self):
+        return self._tool_call("stop_updates")
+
+    def repair_windows(self):
+        return self._tool_call("repair")
+
+    def _working(self):
+        return self._service.active() or (self._tools is not None and self._tools.busy())
 
     def _update_call(self, action):
         def run():
@@ -123,7 +168,7 @@ class DesktopApi:
 
     def install_update(self):
         def install(updater):
-            if self._service.active():
+            if self._working():
                 raise ServiceError("Wait for the current operation or stop it first.")
             updater.install()
             if self._window is not None:
@@ -335,7 +380,8 @@ def main():
             name="clearspace", repository="mighelsterzkdev/clearspace", version=__version__, executable="clearspace.exe",
             state_file=local_app_data() / "Clearspace" / "updates.json", install_dir=Path(sys.executable).resolve().parent if frozen else None,
         )
-        api = DesktopApi(service, updater)
+        tools = ToolsService()
+        api = DesktopApi(service, updater, tools)
         server = AssetServer()
         webview.settings["ALLOW_DOWNLOADS"] = False
         webview.settings["ALLOW_FILE_URLS"] = False
@@ -355,7 +401,7 @@ def main():
         window.events.shown += updater.remove_leftovers
 
         def closing():
-            if service.active() and not window.create_confirmation_dialog(
+            if (service.active() or tools.busy()) and not window.create_confirmation_dialog(
                 "Close Clearspace?", "An operation is running. Stop it and close? Files already removed cannot be restored.",
             ):
                 return False

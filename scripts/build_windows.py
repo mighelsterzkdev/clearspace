@@ -92,6 +92,7 @@ def main():
         "Select all or choose categories, then Analyze and confirm Clean selected.\n"
         "37 categories plus Windows Disk Cleanup cover temporary files, recent histories, diagnostics, application caches and native Windows maintenance.\n"
         "The app opens without a permission prompt. Use Restart as administrator for protected system cleanup.\n"
+        "The Tools tab updates programs (winget), tests the connection, clears the DNS cache, repairs Windows files, shows disk health and startup apps.\n"
         "System cleanup uses Windows tools and may not report an exact removed size.\n"
         "Native Windows maintenance cannot be stopped after it starts; Stop prevents later actions.\n"
         "Slow Windows analyses have their own wait budget. Operations queue; unfinished work is shown as Pending.\n"

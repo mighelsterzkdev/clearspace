@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse, WindowAction } from '../types'
+import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse, ToolsState, WindowAction } from '../types'
 
 function initial(): CleanerState {
   return {
@@ -21,6 +21,18 @@ function initial(): CleanerState {
   }
 }
 
+function toolsState(): ToolsState {
+  return {
+    administrator: false,
+    dns: { status: 'idle', error: null },
+    connection: { status: 'idle', target: 'cloudflare', samples: [], summary: null, error: null },
+    updates: { status: 'idle', packages: [], current: null, error: null },
+    repair: { status: 'idle', phase: null, progress: null, result: null, error: null },
+    disks: { status: 'idle', items: [], error: null },
+    startup: { status: 'idle', items: [], error: null },
+  }
+}
+
 function nativeCategory(id: string, title: string, sizeKnown = true): Category {
   return { id, title, native_action: id, group: 'Windows', description: 'Native Windows cleanup.', available: true,
     selected: false, reason: null, bytes: 0, files: 0, skipped: 0, actions: 0, size_known: sizeKnown }
@@ -29,6 +41,8 @@ function nativeCategory(id: string, title: string, sizeKnown = true): Category {
 function bridge(extraCategories: Category[] = []) {
   let state = initial()
   state.categories.push(...extraCategories)
+  state.tools = toolsState()
+  const tools = () => state.tools!
   const snapshot = (): StateResponse => ({ ok: true, state: structuredClone(state) })
   const files = [
     { name: 'old-cache.tmp', path: 'C:\\Sandbox\\Temp\\old-cache.tmp', bytes: 1024 },
@@ -65,6 +79,32 @@ function bridge(extraCategories: Category[] = []) {
     install_update: vi.fn(async () => snapshot()),
     dismiss_update: vi.fn(async () => { state = { ...state, update: { status: 'idle', version: null, progress: null, error: null } }; return snapshot() }),
     open_update_page: vi.fn(async () => snapshot()),
+    flush_dns: vi.fn(async () => { tools().dns = { status: 'done', error: null }; return snapshot() }),
+    test_connection: vi.fn(async (_target: 'cloudflare' | 'google') => {
+      tools().connection = { status: 'done', target: 'cloudflare', samples: [11, 12, null, 11], error: null,
+        summary: { average: 11.3, jitter: 0.7, best: 11, worst: 12, loss: 25, verdict: 'losing' } }
+      return snapshot()
+    }),
+    stop_connection: vi.fn(async () => snapshot()),
+    check_disks: vi.fn(async () => { tools().disks = { status: 'done', error: null, items: [{ name: 'KINGSTON SA400', media: 'SSD', bus: 'SATA', health: 'healthy', size: 960197124096, temperature: null, wear: null }] }; return snapshot() }),
+    list_startup: vi.fn(async () => {
+      tools().startup = { status: 'done', error: null, items: [
+        { id: 'user:Run:Chat', name: 'Chat', program: 'chat.exe', scope: 'user', enabled: true },
+        { id: 'machine:Run:Vendor', name: 'Vendor tray', program: 'tray.exe', scope: 'machine', enabled: true },
+      ] }
+      return snapshot()
+    }),
+    set_startup: vi.fn(async (id: string, enabled: boolean) => { tools().startup.items = tools().startup.items.map(item => item.id === id ? { ...item, enabled } : item); return snapshot() }),
+    check_updates: vi.fn(async () => {
+      tools().updates = { status: 'ready', current: null, error: null, packages: [
+        { id: '7zip.7zip', name: '7-Zip', version: '26.04', available: '26.05', source: 'winget', status: 'pending' },
+        { id: 'Git.Git', name: 'Git', version: '2.56.0', available: '2.56.1', source: 'winget', status: 'pending' },
+      ] }
+      return snapshot()
+    }),
+    install_updates: vi.fn(async (_ids: string[]) => snapshot()),
+    stop_updates: vi.fn(async () => snapshot()),
+    repair_windows: vi.fn(async () => snapshot()),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
   } satisfies CleanerApi
   window.pywebview = { api }
@@ -88,6 +128,53 @@ describe('appearance', () => {
     await waitFor(() => expect(api.set_theme).toHaveBeenCalledWith('dark'))
     await waitFor(() => expect(document.documentElement).toHaveClass('dark'))
     expect(screen.getByRole('button', { name: /Theme: dark/ })).toBeEnabled()
+  })
+})
+
+describe('maintenance tools', () => {
+  async function openTools() {
+    const mock = bridge()
+    render(<App />)
+    await connected()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Tools' }))
+    return { ...mock, user }
+  }
+
+  it('opens without changing anything except reading disks and startup apps', async () => {
+    const { api } = await openTools()
+    expect(screen.getByRole('tab', { name: 'Tools' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('button', { name: /Analyze/ })).not.toBeInTheDocument()
+    await waitFor(() => expect(api.check_disks).toHaveBeenCalledOnce())
+    expect(api.list_startup).toHaveBeenCalledOnce()
+    expect(await screen.findByText('KINGSTON SA400', {}, { timeout: 2000 })).toBeInTheDocument()
+    expect(screen.getByText('Healthy')).toBeInTheDocument()
+    for (const method of [api.flush_dns, api.test_connection, api.check_updates, api.install_updates, api.repair_windows, api.set_startup]) expect(method).not.toHaveBeenCalled()
+  })
+
+  it('updates only the programs left marked', async () => {
+    const { api, user } = await openTools()
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Git' }))
+    await user.click(screen.getByRole('button', { name: 'Update selected (1)' }))
+    expect(api.install_updates).toHaveBeenCalledWith(['7zip.7zip'])
+  })
+
+  it('runs DNS, connection and startup switches; repair needs administrator', async () => {
+    const { api, user } = await openTools()
+    await user.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(await screen.findByText('DNS cache cleared')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'Google' }))
+    await user.click(screen.getByRole('button', { name: 'Test' }))
+    expect(api.test_connection).toHaveBeenCalledWith('google')
+    expect(await screen.findByText('Losing packets')).toBeInTheDocument()
+    expect(screen.getByText('25%')).toBeInTheDocument()
+    await user.click(await screen.findByRole('switch', { name: 'Chat' }))
+    expect(api.set_startup).toHaveBeenCalledWith('user:Run:Chat', false)
+    expect(screen.getByRole('switch', { name: 'Vendor tray' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Repair' })).not.toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Restart as administrator' })[0])
+    expect(api.restart_as_administrator).toHaveBeenCalledOnce()
   })
 })
 

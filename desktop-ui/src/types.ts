@@ -19,12 +19,26 @@ export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
   progress: { checked: number; files: number; bytes: number; current: string | null; message?: string | null };
   result: CleanupResult | null; error: string | null; theme?: Theme; language?: Language
-  disk?: { drive: string; free: number; total: number } | null; administrator?: boolean; update?: UpdateState | null
+  disk?: { drive: string; free: number; total: number } | null; administrator?: boolean; update?: UpdateState | null; tools?: ToolsState
   maintenance?: { action_id: string; operation: 'analyze' | 'cleanup'; phase: 'running' | 'finishing'; elapsed_seconds: number } | null
 }
 export interface UpdateState {
   status: 'unsupported' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'failed'
   version: string | null; progress: number | null; error: string | null
+}
+export type ConnectionTarget = 'cloudflare' | 'google'
+export interface UpdatePackage { id: string; name: string; version: string; available: string; source: string; status: 'pending' | 'updating' | 'updated' | 'failed' }
+export interface ToolsState {
+  administrator: boolean
+  dns: { status: 'idle' | 'running' | 'done' | 'failed'; error: string | null }
+  connection: { status: 'idle' | 'running' | 'done' | 'failed'; target: string; samples: (number | null)[]; error: string | null
+    summary: { average: number | null; jitter: number | null; best: number | null; worst: number | null; loss: number; verdict: 'stable' | 'unstable' | 'losing' | 'offline' | null } | null }
+  updates: { status: 'idle' | 'checking' | 'ready' | 'updating' | 'done' | 'failed'; packages: UpdatePackage[]; current: string | null; error: string | null }
+  repair: { status: 'idle' | 'running' | 'done' | 'failed'; phase: 'dism' | 'sfc' | null; progress: number | null; error: string | null
+    result: { verdict: 'clean' | 'repaired' | 'unrepaired' | 'failed'; repaired: number; unrepaired: number } | null }
+  disks: { status: 'idle' | 'running' | 'done' | 'failed'; error: string | null
+    items: { name: string; media: string; bus: string; health: 'healthy' | 'warning' | 'unhealthy' | 'unknown'; size: number | null; temperature: number | null; wear: number | null }[] }
+  startup: { status: 'idle' | 'done' | 'failed'; error: string | null; items: { id: string; name: string; program: string; scope: 'user' | 'machine'; enabled: boolean; fixed?: boolean }[] }
 }
 export interface FileItem { name: string; path: string; bytes: number }
 export type StateResponse = { ok: true; state: CleanerState } | { ok: false; error: string }
@@ -41,6 +55,16 @@ export interface CleanerApi {
   set_language(language: Language): Promise<StateResponse>;
   restart_as_administrator(): Promise<StateResponse>;
   download_update(): Promise<StateResponse>;
+  flush_dns(): Promise<StateResponse>;
+  test_connection(target: ConnectionTarget): Promise<StateResponse>;
+  stop_connection(): Promise<StateResponse>;
+  check_disks(): Promise<StateResponse>;
+  list_startup(): Promise<StateResponse>;
+  set_startup(id: string, enabled: boolean): Promise<StateResponse>;
+  check_updates(): Promise<StateResponse>;
+  install_updates(ids: string[]): Promise<StateResponse>;
+  stop_updates(): Promise<StateResponse>;
+  repair_windows(): Promise<StateResponse>;
   install_update(): Promise<StateResponse>;
   dismiss_update(): Promise<StateResponse>;
   open_update_page(): Promise<StateResponse>;

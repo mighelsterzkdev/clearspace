@@ -4,6 +4,17 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.7.0
+
+A **Tools** tab next to Cleanup, so Clearspace also keeps the PC in shape. Each tool is one button with a plain result:
+
+- **Update programs**: lists new versions of installed programs through Windows Package Manager (`winget upgrade`) and installs the ones you leave marked, one at a time.
+- **Test connection**: pings Cloudflare or Google for 30 seconds and shows average ping, variation, packet loss and a verdict (stable, unstable, losing packets).
+- **Clear DNS cache**: the same as `ipconfig /flushdns`.
+- **Repair Windows files**: runs `DISM /RestoreHealth` and then `sfc /scannow` with progress, and reports whether files were repaired. Needs administrator.
+- **Disk health**: what Windows reports for each SSD and hard drive.
+- **Startup apps**: turn programs that open with Windows on or off, the same switch Task Manager uses. Nothing is deleted.
+
 ## Version 0.6.0
 
 - **Automatic updates.** Once a day Clearspace checks this repository's releases. When a new version exists, a notice offers **Update**; the ZIP is checked against the release's `SHA256SUMS.txt`, and **Restart to update** installs it in the same folder, so shortcuts keep working. Nothing downloads or restarts without a click, and **Not now** hides that version.

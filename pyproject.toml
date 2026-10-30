@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clearspace-cleaner"
-version = "0.6.0"
+version = "0.7.0"
 description = "A transparent Windows cleaner: analyze, review, and remove selected temporary files."
 readme = "README.md"
 requires-python = ">=3.12"

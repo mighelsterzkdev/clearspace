@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ExternalLink, HardDrive, LoaderCircle, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ExternalLink, HardDrive, LoaderCircle, Search, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { CategoryRow } from './components/CategoryRow'
 import { ThemeToggle, useThemeClass } from './components/ThemeToggle'
 import { LanguageToggle } from './components/LanguageToggle'
 import { UpdateNotice } from './components/UpdateNotice'
+import { ToolsPanel, type ToolActions } from './components/ToolsPanel'
 import { WindowControls, dragFromHeader, maximizeFromHeader } from './components/TitleBar'
 import { CategoryToolbar } from './components/CategoryToolbar'
 import { CleanupResult } from './components/CleanupResult'
@@ -27,6 +28,7 @@ export default function App() {
   setLanguage(resolveLanguage(state.language))
   const [details, setDetails] = useState<FileSelection | null>(null)
   const [review, setReview] = useState<Review | null>(null)
+  const [tab, setTab] = useState<'cleanup' | 'tools'>('cleanup')
   const content = useRef<HTMLElement>(null)
   const selected = state.categories.filter(category => category.selected && category.available)
   const selectedBytes = selected.reduce((sum, category) => sum + category.bytes, 0)
@@ -46,7 +48,7 @@ export default function App() {
   const groups = [...new Set(listed.map(category => category.group || 'Windows'))]
   const systemCategory = (category: Category) => category.group === 'System maintenance' || category.group === 'Disk Cleanup' || category.id.startsWith('windows_')
     || ['crash_dumps', 'system_memory_dump', 'error_reports'].includes(category.id) || /administrator/i.test(category.reason ?? '')
-  const needsAdministrator = state.administrator === false && selected.some(systemCategory)
+  const needsAdministrator = tab === 'cleanup' && state.administrator === false && selected.some(systemCategory)
   const disk = state.disk
   const busy = state.phase === 'scanning' || state.phase === 'cleaning'
   const disabled = !connected || busy || pending !== null
@@ -105,8 +107,19 @@ export default function App() {
     setReview(null)
   }
 
+  const toolActions: ToolActions = {
+    flush_dns: () => void invoke('flush_dns'), test_connection: target => void invoke('test_connection', target), stop_connection: () => void invoke('stop_connection'),
+    check_disks: () => void invoke('check_disks'), list_startup: () => void invoke('list_startup'), set_startup: (id, enabled) => void invoke('set_startup', id, enabled),
+    check_updates: () => void invoke('check_updates'), install_updates: ids => void invoke('install_updates', ids), stop_updates: () => void invoke('stop_updates'),
+    repair_windows: () => void invoke('repair_windows'), restart_as_administrator: () => void invoke('restart_as_administrator'),
+  }
+  const tabs = <div className="app-tabs" role="tablist" aria-label={t('Sections')}>
+    {(['cleanup', 'tools'] as const).map(value => <button key={value} type="button" role="tab" id={`tab-${value}`} aria-selected={tab === value} aria-controls="app-panel"
+      className="app-tab" onClick={() => { setTab(value); content.current?.scrollTo({ top: 0 }) }}>{value === 'cleanup' ? <Trash2 aria-hidden="true" /> : <Wrench aria-hidden="true" />}{t(value === 'cleanup' ? 'Cleanup' : 'Tools')}</button>)}
+  </div>
+
   return <div className="app-shell">
-    <header className={connected ? 'app-header with-window-controls' : 'app-header'} onMouseDown={dragFromHeader} onDoubleClick={maximizeFromHeader}>{connected ? <WindowControls /> : null}<div className="app-brand"><HardDrive className="size-5 text-muted-foreground" aria-hidden="true" /><h1>Clearspace</h1></div><div className="app-header-actions"><LanguageToggle language={state.language ?? 'system'} disabled={!connected} onChange={value => void invoke('set_language', value)} /><ThemeToggle theme={theme} disabled={!connected} onChange={value => void invoke('set_theme', value)} /></div></header>
+    <header className={connected ? 'app-header with-window-controls' : 'app-header'} onMouseDown={dragFromHeader} onDoubleClick={maximizeFromHeader}>{connected ? <WindowControls /> : null}<div className="app-brand"><HardDrive className="size-5 text-muted-foreground" aria-hidden="true" /><h1>Clearspace</h1></div>{tabs}<div className="app-header-actions"><LanguageToggle language={state.language ?? 'system'} disabled={!connected} onChange={value => void invoke('set_language', value)} /><ThemeToggle theme={theme} disabled={!connected} onChange={value => void invoke('set_theme', value)} /></div></header>
     {!connected ? <div className="notice" role="status"><CircleAlert className="size-4 shrink-0" /><span>{t('Waiting for the desktop connection. Open Clearspace with start.cmd.')}</span></div> : null}
     <UpdateNotice update={state.update} name="Clearspace" busy={busy || !!state.maintenance} pending={pending === 'download_update' || pending === 'install_update'}
       onDownload={() => void invoke('download_update')} onInstall={() => void invoke('install_update')} onDismiss={() => void invoke('dismiss_update')} onOpenPage={() => void invoke('open_update_page')} />
@@ -114,8 +127,9 @@ export default function App() {
     {state.maintenance && !busy ? <div className="notice" role="status"><Clock3 className="size-4 shrink-0 text-warning" aria-hidden="true" /><span>{t(state.maintenance.operation === 'analyze' ? 'Windows is still analyzing cleanup options.' : 'Windows maintenance is still running.')}</span></div> : null}
     {needsAdministrator ? <div className="notice admin-notice" role="status"><ShieldCheck className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span>{t('System cleanup needs administrator permission. Protected files are skipped until then.')}</span>
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => void invoke('restart_as_administrator')}>{pending === 'restart_as_administrator' ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}{t('Restart as administrator')}</Button></div> : null}
-    <main className="app-content" ref={content}>
-      <section aria-labelledby="cleanup-heading">
+    <main className="app-content" ref={content} id="app-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+      {tab === 'tools' ? <ToolsPanel tools={state.tools} connected={connected} actions={toolActions} /> : null}
+      <section aria-labelledby="cleanup-heading" hidden={tab !== 'cleanup'}>
         <div className="section-heading"><div><h2 id="cleanup-heading">{t('Clean up your PC')}</h2><p>{t('Select what to clean, then analyze.')}</p></div>
           {busy ? <Button variant="outline" disabled><LoaderCircle className="animate-spin" />{t(state.phase === 'scanning' ? 'Analyzing…' : 'Cleaning…')}</Button>
             : analyzed || result ? <Button variant="outline" disabled={disabled || selected.length === 0} onClick={analyze}><Search />{t('Analyze again')}</Button> : null}
@@ -163,7 +177,7 @@ export default function App() {
         </section>
       </section>
     </main>
-    <div className="action-bar"><div><p>{busy ? status : ready ? readySummary : t(selected.length === 1 ? '{count} category selected' : '{count} categories selected', { count: selected.length })}</p><span>{busy ? t('{count} items checked', { count: state.progress.checked.toLocaleString(locale()) }) : ready ? readyDetails : t('Analyze to see what can be removed.')}</span></div>{busy ? <Button variant="outline" disabled={!connected || pending !== null} onClick={() => void invoke('cancel')}>{pending === 'cancel' ? <LoaderCircle className="animate-spin" /> : <X />}{t(pending === 'cancel' ? 'Stopping…' : 'Stop')}</Button> : ready ? <Button disabled={!canClean} onClick={requestClean}><Trash2 />{t('Clean selected')}<ArrowRight /></Button> : <Button disabled={disabled || selected.length === 0} onClick={analyze}>{pending === 'scan' ? <LoaderCircle className="animate-spin" /> : <Search />}{t('Analyze')}<ArrowRight /></Button>}</div>
+    {tab === 'cleanup' ? <div className="action-bar"><div><p>{busy ? status : ready ? readySummary : t(selected.length === 1 ? '{count} category selected' : '{count} categories selected', { count: selected.length })}</p><span>{busy ? t('{count} items checked', { count: state.progress.checked.toLocaleString(locale()) }) : ready ? readyDetails : t('Analyze to see what can be removed.')}</span></div>{busy ? <Button variant="outline" disabled={!connected || pending !== null} onClick={() => void invoke('cancel')}>{pending === 'cancel' ? <LoaderCircle className="animate-spin" /> : <X />}{t(pending === 'cancel' ? 'Stopping…' : 'Stop')}</Button> : ready ? <Button disabled={!canClean} onClick={requestClean}><Trash2 />{t('Clean selected')}<ArrowRight /></Button> : <Button disabled={disabled || selected.length === 0} onClick={analyze}>{pending === 'scan' ? <LoaderCircle className="animate-spin" /> : <Search />}{t('Analyze')}<ArrowRight /></Button>}</div> : null}
     <footer className="app-footer"><span>{status}</span><span>{state.version ? `v${state.version}` : 'Clearspace'}</span></footer>
     <FilesDialog selection={details} scanId={state.scan_id} onClose={() => setDetails(null)} />
     <Dialog open={reviewOpen} onOpenChange={value => { if (!value) setReview(null) }}><DialogContent className="confirm-dialog">

@@ -4,6 +4,8 @@ import { t } from './i18n'
 
 type Mutation = 'set_selection' | 'scan' | 'cancel' | 'clean' | 'open_search_settings' | 'set_theme' | 'set_language' | 'restart_as_administrator'
   | 'download_update' | 'install_update' | 'dismiss_update' | 'open_update_page'
+  | 'flush_dns' | 'test_connection' | 'stop_connection' | 'check_disks' | 'list_startup' | 'set_startup'
+  | 'check_updates' | 'install_updates' | 'stop_updates' | 'repair_windows'
 
 export function useCleaner() {
   const [state, setState] = useState<CleanerState>(initialState)
