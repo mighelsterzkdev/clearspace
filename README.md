@@ -4,6 +4,11 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.7.1
+
+- One spacing, height and type scale across the interface, shared with Media Toolkit: 40 px main actions, 36 px buttons, 32 px compact buttons and tabs, 8 px panel corners, 24 px between blocks.
+- Microsoft Edge and the WebView2 Runtime are no longer listed in **Update programs**: they update themselves, and winget cannot replace them.
+
 ## Version 0.7.0
 
 A **Tools** tab next to Cleanup, so Clearspace also keeps the PC in shape. Each tool is one button with a plain result:
