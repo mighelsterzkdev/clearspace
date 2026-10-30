@@ -26,7 +26,7 @@
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
     "src/locales/pt.ts": "6755a0d1df82098b986c3e7c6aecd08a2f5180e9ed15ec8470b832036c6d1c03",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
-    "src/styles.css": "8fde1ee75218f31bd32fa4a9c249a4ac972ee3b285b14ab115ca94f1e75d6591",
+    "src/styles.css": "696ca5386c055d30b5a091bdef8f08a452e7e7ebbff2b63498dd1f995eaa6cd1",
     "src/test/App.test.tsx": "09ff8476c591f65d6c81580f122b17fddcf90cdcb52be23203b9ddb47553a709",
     "src/test/setup.ts": "888a9496cb59c64df47334af0e7fcc540aff3e437a2632a815b532dcf9e0e02c",
     "src/types.ts": "ba281b18b80cf2fd2055691c1c9b291d7799d31a271d16d634b2e32c625803da",
@@ -37,8 +37,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
-    "assets/index-CqXg-7Nx.js": "feac076b7fccfffb7b882a5e249b1e2b99f53f5af5d76b2b444f713a14b958eb",
-    "assets/index-iqHsK9QK.css": "1beab5f1d4d39d9569d979feeaeb5a294d254f1a762817e2aaf07d54decc3112",
-    "index.html": "9691ba711d699a19dd824584e2cf83a10672a309c47b431f7dd084b6576a21d1"
+    "assets/index-DV9fbqWj.css": "9234170458f6b533cfded0b32c377cb516c58a19a3922c2e151b66979e6df86f",
+    "assets/index-DWiH5A3Z.js": "feac076b7fccfffb7b882a5e249b1e2b99f53f5af5d76b2b444f713a14b958eb",
+    "index.html": "847667ade31f95ee7ff387985ca11a7b57307c627a1af38e6d1139fab09a8c1a"
   }
 }
