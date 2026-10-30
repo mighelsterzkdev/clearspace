@@ -23,7 +23,7 @@
     "src/format.ts": "52930ff1773a0bc3874e8412827627ab18774c2ecafc2ae4481adc41ed78f29c",
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
-    "src/styles.css": "accb25ab173a926a60ff16cfdd1a265317033b7b5e47d2cfcdf17b568d592e3e",
+    "src/styles.css": "7d2ff24e15d2d0714dbac89d7be0a59607cfee32c12a921c0635916d83e7c4ad",
     "src/test/App.test.tsx": "6b88917d56452b59fefa547e12de3c73cb5508da5a238cc20c20f8344ed057af",
     "src/test/setup.ts": "888a9496cb59c64df47334af0e7fcc540aff3e437a2632a815b532dcf9e0e02c",
     "src/types.ts": "7124e333b1515220e82fe91b628a157c20944f15f971837fa72df13b724d2ba8",
@@ -34,8 +34,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
-    "assets/index-BVJPIDB2.css": "92cebcdda1219631d6ef90dd73a7068648bd86ad03d5765af3989775a41f3a14",
-    "assets/index-Dpw5lemC.js": "281a1a610b9b56cd3bb3fcaec17104c3bee4bdaf546de5eb5857e32ee18b8d37",
-    "index.html": "b3b9426f5840097e0b5f6ac24dd2310fe5c02befa7367132becc445b738b0bfb"
+    "assets/index-B-DeZ4xT.css": "7e7c454a96af2a66985a3795aa21bc8e17efcc539dfc27261ddb5d4e0ccbd05b",
+    "assets/index-BKwhMIQf.js": "281a1a610b9b56cd3bb3fcaec17104c3bee4bdaf546de5eb5857e32ee18b8d37",
+    "index.html": "a731376fcbd0a70c591480ab9d12e23c962688eb1657f944ea3ba051794a9642"
   }
 }
