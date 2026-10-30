@@ -66,6 +66,14 @@ class CleanerService:
                 # Windows cleanup categories to users of the five-category MVP.
                 legacy = {"user_temp", "chrome_cache", "edge_cache", "firefox_cache", "pip_cache"}
                 selected.update(set(defaults) - legacy)
+            else:
+                # Recommended categories added since the selection was saved start selected once;
+                # anything the user had already seen keeps their choice. Version 2 predates the
+                # Windows Disk Cleanup handlers, which are the only categories it could not know.
+                known = value.get("known")
+                if not isinstance(known, list):
+                    known = [item for item in self._categories if not item.startswith("disk_cleanup_")]
+                selected.update(set(defaults) - set(known))
             return selected
         except (OSError, ValueError):
             return set(defaults)
@@ -174,7 +182,7 @@ class CleanerService:
             self._state.update(phase="idle", scan_id=None, scanned_at=None, progress=self._empty_progress(), result=None, error=None)
             self._refresh_categories()
             try:
-                self._write_json("settings.json", {"version": 2, "selected": sorted(selected)})
+                self._write_json("settings.json", {"version": 3, "selected": sorted(selected), "known": sorted(self._categories)})
             except OSError:
                 self._state["error"] = "Your selection is ready, but preferences could not be saved."
             return self.get_state()

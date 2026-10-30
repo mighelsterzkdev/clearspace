@@ -91,9 +91,19 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             service.clean("scan-token", ["pip_cache"])
         stored = json.loads((self.data_dir / "settings.json").read_text())
-        self.assertEqual(stored, {"version": 2, "selected": ["pip_cache"]})
+        self.assertEqual(stored, {"version": 3, "selected": ["pip_cache"], "known": sorted(row["id"] for row in state["categories"])})
         restored = self.service().get_state()
         self.assertEqual([row["id"] for row in restored["categories"] if row["selected"]], ["pip_cache"])
+
+    def test_new_recommended_categories_start_selected_once(self):
+        service = self.service()
+        known = [row["id"] for row in service.get_state()["categories"] if row["id"] != "user_temp"]
+        (self.data_dir / "settings.json").write_text(json.dumps({"version": 3, "selected": ["pip_cache"], "known": known}))
+        selected = {row["id"] for row in self.service().get_state()["categories"] if row["selected"]}
+        self.assertEqual(selected, {"pip_cache", "user_temp"})
+        # A deselected category the user had already seen stays deselected.
+        (self.data_dir / "settings.json").write_text(json.dumps({"version": 3, "selected": ["pip_cache"], "known": known + ["user_temp"]}))
+        self.assertEqual({row["id"] for row in self.service().get_state()["categories"] if row["selected"]}, {"pip_cache"})
 
     def test_cancelled_or_truncated_scan_cannot_clean(self):
         for truncated in (False, True):

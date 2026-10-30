@@ -43,7 +43,7 @@ export default function App() {
   const listed = available.filter(category => !isEmpty(category))
   const empty = available.filter(isEmpty)
   const groups = [...new Set(listed.map(category => category.group || 'Windows'))]
-  const systemCategory = (category: Category) => category.group === 'System maintenance' || category.id.startsWith('windows_')
+  const systemCategory = (category: Category) => category.group === 'System maintenance' || category.group === 'Disk Cleanup' || category.id.startsWith('windows_')
     || ['crash_dumps', 'system_memory_dump', 'error_reports'].includes(category.id) || /administrator/i.test(category.reason ?? '')
   const needsAdministrator = state.administrator === false && selected.some(systemCategory)
   const disk = state.disk

@@ -89,6 +89,9 @@ def discover_categories(locations=None):
     add("amd_cache", "AMD shader cache", "Compiled shaders and graphics cache; regenerated when needed.", [
         local / "AMD/DxCache", local / "AMD/DxcCache", local / "AMD/GLCache", local / "AMD/VkCache", low / "AMD/DxCache",
     ])
+    # Windows' own Disk Cleanup handlers follow the Windows file categories.
+    from .actions import disk_cleanup_categories
+    categories.extend(disk_cleanup_categories())
 
     def chromium(identifier, title, base, processes):
         profiles = _profiles(base, r"Default|Profile [0-9]+")

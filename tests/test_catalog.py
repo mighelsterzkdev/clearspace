@@ -91,7 +91,8 @@ class CatalogTests(unittest.TestCase):
                 continue
             if category.native_action:
                 self.assertTrue(category.available)
-                self.assertFalse(category.default_selected)
+                # Only Disk Cleanup handlers that Windows itself preselects start selected.
+                self.assertEqual(category.default_selected, category.id.startswith("disk_cleanup_") and category.default_selected, category.id)
                 self.assertEqual(category.native_action, category.id)
                 self.assertEqual(category.roots, ())
                 continue

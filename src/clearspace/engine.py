@@ -22,7 +22,7 @@ import uuid
 
 from . import windows
 from .recycle_bin import RecycleBinSnapshot, WindowsRecycleBin
-from .actions import MAINTENANCE_ACTION_IDS, NATIVE_ACTION_IDS, create_provider
+from .actions import MAINTENANCE_ACTION_IDS, create_provider, is_native_action
 from .maintenance import MaintenanceDeferredError
 
 
@@ -227,7 +227,7 @@ class Cleaner:
         for item in self.categories:
             if item.native_action is not None and (item.roots or not (
                     (item.id == "recycle_bin" and item.native_action == "empty_recycle_bin")
-                    or (item.id == item.native_action and item.native_action in NATIVE_ACTION_IDS))):
+                    or (item.id == item.native_action and is_native_action(item.native_action)))):
                 raise ValueError("Unsupported native cleanup action.")
             if not item.id or type(item.minimum_age_days) is not int or item.minimum_age_days < 0:
                 raise ValueError("Cleaning rule age limits must be nonnegative whole days.")
@@ -251,10 +251,10 @@ class Cleaner:
         self._latest_plan: Plan | None = None
         self._recycle_bin = recycle_bin if recycle_bin is not None else WindowsRecycleBin()
         self._native_actions = dict(native_actions or {})
-        if any(identifier not in NATIVE_ACTION_IDS for identifier in self._native_actions):
+        if any(not is_native_action(identifier) for identifier in self._native_actions):
             raise ValueError("Unsupported native cleanup provider.")
         for category in self.categories:
-            if category.native_action in NATIVE_ACTION_IDS and category.native_action not in self._native_actions:
+            if category.native_action and is_native_action(category.native_action) and category.native_action not in self._native_actions:
                 self._native_actions[category.native_action] = create_provider(category.native_action)
 
     def _selection(self, ids: Iterable[str]) -> tuple[Category, ...]:
@@ -333,12 +333,12 @@ class Cleaner:
                     report(category.id, True)
                     continue
 
-                if category.native_action in NATIVE_ACTION_IDS:
+                if category.native_action and is_native_action(category.native_action):
                     report(category.id, True)
                     query_started = time.monotonic()
                     try:
                         provider = self._native_actions[category.native_action]
-                        snapshot = provider.query(cancel=cancel) if category.native_action in MAINTENANCE_ACTION_IDS else provider.query()
+                        snapshot = provider.query(cancel=cancel) if category.native_action in MAINTENANCE_ACTION_IDS or category.native_action.startswith("disk_cleanup_") else provider.query()
                         if type(snapshot.pending) is not bool or (snapshot.bytes is not None and (
                                 type(snapshot.bytes) is not int or snapshot.bytes < 0)):
                             raise ValueError("Invalid native cleanup analysis.")

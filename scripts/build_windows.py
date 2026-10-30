@@ -90,7 +90,7 @@ def main():
         "Python and Node.js are not required. Microsoft Edge WebView2 Runtime must be installed.\n"
         "Analyze first, inspect the file list, then confirm Clean selected. Cleanup never starts automatically.\n"
         "Select all or choose categories, then Analyze and confirm Clean selected.\n"
-        "37 categories cover temporary files, recent histories, diagnostics, application caches and native Windows maintenance.\n"
+        "37 categories plus Windows Disk Cleanup cover temporary files, recent histories, diagnostics, application caches and native Windows maintenance.\n"
         "The app opens without a permission prompt. Use Restart as administrator for protected system cleanup.\n"
         "System cleanup uses Windows tools and may not report an exact removed size.\n"
         "Native Windows maintenance cannot be stopped after it starts; Stop prevents later actions.\n"
