@@ -61,6 +61,10 @@ function bridge(extraCategories: Category[] = []) {
     set_theme: vi.fn(async (theme: 'system' | 'dark' | 'light') => { state = { ...state, theme }; return snapshot() }),
     set_language: vi.fn(async (language: 'system' | 'pt' | 'en') => { state = { ...state, language }; return snapshot() }),
     restart_as_administrator: vi.fn(async () => snapshot()),
+    download_update: vi.fn(async () => { state = { ...state, update: { status: 'ready', version: '0.6.0', progress: 1, error: null } }; return snapshot() }),
+    install_update: vi.fn(async () => snapshot()),
+    dismiss_update: vi.fn(async () => { state = { ...state, update: { status: 'idle', version: null, progress: null, error: null } }; return snapshot() }),
+    open_update_page: vi.fn(async () => snapshot()),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
   } satisfies CleanerApi
   window.pywebview = { api }
@@ -84,6 +88,36 @@ describe('appearance', () => {
     await waitFor(() => expect(api.set_theme).toHaveBeenCalledWith('dark'))
     await waitFor(() => expect(document.documentElement).toHaveClass('dark'))
     expect(screen.getByRole('button', { name: /Theme: dark/ })).toBeEnabled()
+  })
+})
+
+describe('updates', () => {
+  it('stays hidden until a release is available, then downloads and installs only on click', async () => {
+    const { api, update } = bridge()
+    render(<App />)
+    await connected()
+    expect(screen.queryByRole('button', { name: 'Update' })).not.toBeInTheDocument()
+    act(() => update({ update: { status: 'available', version: '0.6.0', progress: null, error: null } }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Update' }, { timeout: 2000 }))
+    expect(api.download_update).toHaveBeenCalledOnce()
+    expect(api.install_update).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: 'Restart to update' }))
+    expect(api.install_update).toHaveBeenCalledOnce()
+  })
+
+  it('waits for a running cleanup before restarting, and can be dismissed', async () => {
+    const { api, update } = bridge()
+    render(<App />)
+    await connected()
+    act(() => update({ phase: 'cleaning', update: { status: 'ready', version: '0.6.0', progress: 1, error: null } }))
+    expect(await screen.findByText('Finish the current work to install Clearspace 0.6.0.', {}, { timeout: 2000 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restart to update' })).toBeDisabled()
+    act(() => update({ phase: 'idle', update: { status: 'available', version: '0.6.0', progress: null, error: null } }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Not now' }, { timeout: 2000 }))
+    expect(api.dismiss_update).toHaveBeenCalledOnce()
+    await waitFor(() => expect(screen.queryByText('Clearspace 0.6.0 is available.')).not.toBeInTheDocument())
   })
 })
 

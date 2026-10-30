@@ -118,6 +118,7 @@
   .notice { @apply mx-6 mt-4 flex shrink-0 items-center gap-4 rounded-md border bg-muted/30 px-4 py-3 text-sm leading-6; }
   .notice > span { @apply min-w-0 flex-1; }
   .notice-error { @apply border-destructive/50 text-danger; }
+  .notice > .update-percent { @apply flex-none text-muted-foreground; }
   .operation-progress { @apply mb-4 space-y-3; }
   .operation-progress > div:first-child { @apply flex items-center gap-2 text-sm text-muted-foreground; }
   .operation-progress > div:first-child > span:last-child { @apply ml-auto tabular-nums; }

@@ -13,5 +13,9 @@ if __name__ == "__main__":
         except Exception:
             raise SystemExit(1)
         raise SystemExit(0)
+    if sys.argv[1:2] == ["--finish-update"]:
+        # Run from a staged release after the previous copy exits; installs it, then reopens the app.
+        from clearspace.updates import finish
+        raise SystemExit(finish(sys.argv[2:], "clearspace.exe"))
     from clearspace.gui import main
     raise SystemExit(main())

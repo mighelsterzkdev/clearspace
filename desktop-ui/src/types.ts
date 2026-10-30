@@ -19,8 +19,12 @@ export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
   progress: { checked: number; files: number; bytes: number; current: string | null; message?: string | null };
   result: CleanupResult | null; error: string | null; theme?: Theme; language?: Language
-  disk?: { drive: string; free: number; total: number } | null; administrator?: boolean
+  disk?: { drive: string; free: number; total: number } | null; administrator?: boolean; update?: UpdateState | null
   maintenance?: { action_id: string; operation: 'analyze' | 'cleanup'; phase: 'running' | 'finishing'; elapsed_seconds: number } | null
+}
+export interface UpdateState {
+  status: 'unsupported' | 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'failed'
+  version: string | null; progress: number | null; error: string | null
 }
 export interface FileItem { name: string; path: string; bytes: number }
 export type StateResponse = { ok: true; state: CleanerState } | { ok: false; error: string }
@@ -36,6 +40,10 @@ export interface CleanerApi {
   set_theme(theme: Theme): Promise<StateResponse>;
   set_language(language: Language): Promise<StateResponse>;
   restart_as_administrator(): Promise<StateResponse>;
+  download_update(): Promise<StateResponse>;
+  install_update(): Promise<StateResponse>;
+  dismiss_update(): Promise<StateResponse>;
+  open_update_page(): Promise<StateResponse>;
   window_action?(action: WindowAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 export type ResizeEdge = 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'

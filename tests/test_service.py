@@ -149,6 +149,14 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(api.clean(None, ["user_temp"])["ok"])
         self.assertEqual(engine.clean_calls, [])
 
+    def test_bridge_reports_update_state_and_refuses_updates_without_an_updater(self):
+        updater = SimpleNamespace(snapshot=lambda: {"status": "available", "version": "9.0.0", "progress": None, "error": None})
+        self.assertEqual(DesktopApi(self.service(), updater).get_state()["state"]["update"]["version"], "9.0.0")
+        api = DesktopApi(self.service())
+        self.assertNotIn("update", api.get_state()["state"])
+        for method in (api.download_update, api.install_update, api.dismiss_update, api.open_update_page):
+            self.assertEqual(method(), {"ok": False, "error": "Updates are not available in this copy."})
+
     def test_window_actions_are_validated_before_reaching_windows(self):
         api = DesktopApi(self.service())
         self.assertEqual(api.window_action("close"), {"ok": False, "error": "The window is not ready yet."})

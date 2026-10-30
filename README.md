@@ -4,6 +4,11 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.6.0
+
+- **Automatic updates.** Once a day Clearspace checks this repository's releases. When a new version exists, a notice offers **Update**; the ZIP is checked against the release's `SHA256SUMS.txt`, and **Restart to update** installs it in the same folder, so shortcuts keep working. Nothing downloads or restarts without a click, and **Not now** hides that version.
+- Releases are published automatically when a version tag is pushed.
+
 ## Version 0.5.0
 
 - **Windows Disk Cleanup** categories: the same cleaners `cleanmgr.exe` runs (Temporary Internet Files, Downloaded Program Files, setup and upgrade leftovers, Defender files, driver packages, previous installations and more). Windows measures and removes each one; the Downloads folder and File History versions are never offered.
@@ -45,7 +50,7 @@ Native maintenance may report no exact removed size. The result lists completed/
 
 ## Run
 
-Open `start.cmd` for the desktop app. The included portable Windows folder can run without installing Python or Node.js; Microsoft Edge WebView2 Runtime is required and normally comes with Windows 11.
+Download the latest `clearspace-<version>-windows-x64.zip` from [Releases](https://github.com/mighelsterzkdev/clearspace/releases/latest), extract it, and open `clearspace.exe`. Later versions are offered inside the app. Open `start.cmd` for the desktop app. The included portable Windows folder can run without installing Python or Node.js; Microsoft Edge WebView2 Runtime is required and normally comes with Windows 11.
 
 For a source checkout, install Python 3.12 or newer, run `scripts\install.cmd`, then open `start.cmd`. Generated frontend assets are included, so Node.js is needed only when changing the interface. Build and setup helpers live in `scripts/`; the root contains only one application launcher.
 

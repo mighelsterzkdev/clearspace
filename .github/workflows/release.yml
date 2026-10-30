@@ -1,0 +1,35 @@
+name: Release
+
+# Pushing a version tag publishes the portable ZIP and its checksum.
+# The desktop app offers updates only from these releases.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: constraints.txt
+      - run: python -B -m pip install -c constraints.txt -e ".[build]"
+      - run: python -B -m unittest discover -s tests -v
+      - run: python -B scripts/build_windows.py
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = python -B -c "import clearspace; print(clearspace.__version__)"
+          if ($env:TAG -ne "v$version") { throw "Tag $env:TAG does not match version $version." }
+          $notes = python -B scripts/release_notes.py $version
+          $notes | Set-Content -Encoding utf8 release-notes.md
+          gh release create $env:TAG "dist/clearspace-$version-windows-x64.zip" dist/SHA256SUMS.txt --title "Clearspace $version" --notes-file release-notes.md

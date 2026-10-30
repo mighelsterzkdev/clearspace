@@ -13,7 +13,7 @@ import sys
 import threading
 from urllib.parse import unquote, urlsplit
 
-from . import APP_NAME, frame, shell
+from . import APP_NAME, __version__, frame, shell, updates
 from .elevation import ElevationError, relaunch_as_administrator
 from .maintenance import is_administrator
 from .service import CleanerService, ServiceError
@@ -29,8 +29,9 @@ CSP = (
 
 
 class DesktopApi:
-    def __init__(self, service):
+    def __init__(self, service, updater=None):
         self._service = service
+        self._updater = updater
         self._window = None
 
     def attach(self, window):
@@ -39,9 +40,13 @@ class DesktopApi:
     def _call(self, method, *args, details=False):
         try:
             result = method(*args)
-            return {"ok": True, **result} if details else {"ok": True, "state": result}
+            if details:
+                return {"ok": True, **result}
+            if isinstance(result, dict) and self._updater is not None:
+                result = {**result, "update": self._updater.snapshot()}
+            return {"ok": True, "state": result}
         except Exception as error:
-            text = str(error) if isinstance(error, ServiceError) else "The request could not finish. Analyze again to retry."
+            text = str(error) if isinstance(error, (ServiceError, updates.UpdateError)) else "The request could not finish. Analyze again to retry."
             return {"ok": False, "error": " ".join(text.split())[:500]}
 
     def get_state(self):
@@ -98,6 +103,33 @@ class DesktopApi:
                 self._window.destroy()
             return self._service.get_state()
         return self._call(restart)
+
+    def _update_call(self, action):
+        def run():
+            if self._updater is None:
+                raise ServiceError("Updates are not available in this copy.")
+            action(self._updater)
+            return self._service.get_state()
+        return self._call(run)
+
+    def download_update(self):
+        return self._update_call(lambda updater: updater.download())
+
+    def dismiss_update(self):
+        return self._update_call(lambda updater: updater.dismiss())
+
+    def open_update_page(self):
+        return self._update_call(lambda updater: os.startfile(updater.release_page()))
+
+    def install_update(self):
+        def install(updater):
+            if self._service.active():
+                raise ServiceError("Wait for the current operation or stop it first.")
+            updater.install()
+            if self._window is not None:
+                # The staged copy waits for this process to exit, installs, then reopens Clearspace.
+                self._window.destroy()
+        return self._update_call(install)
 
 
 _NOTICES = {
@@ -298,7 +330,12 @@ def main():
     try:
         import webview
         service = CleanerService()
-        api = DesktopApi(service)
+        frozen = getattr(sys, "frozen", False)
+        updater = updates.Updater(
+            name="clearspace", repository="mighelsterzkdev/clearspace", version=__version__, executable="clearspace.exe",
+            state_file=local_app_data() / "Clearspace" / "updates.json", install_dir=Path(sys.executable).resolve().parent if frozen else None,
+        )
+        api = DesktopApi(service, updater)
         server = AssetServer()
         webview.settings["ALLOW_DOWNLOADS"] = False
         webview.settings["ALLOW_FILE_URLS"] = False
@@ -314,6 +351,8 @@ def main():
         window.events.before_show += partial(frame.use_custom_frame, window)
         feedback = shell.Feedback(window, APP_NAME)
         window.events.shown += lambda: threading.Thread(target=_watch, args=(service, feedback, stop), name="clearspace-feedback", daemon=True).start()
+        window.events.shown += updater.check
+        window.events.shown += updater.remove_leftovers
 
         def closing():
             if service.active() and not window.create_confirmation_dialog(
