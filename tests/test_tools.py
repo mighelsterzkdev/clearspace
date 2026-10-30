@@ -19,6 +19,7 @@ WINGET = (
     "7-Zip 26.04 (x64)                   7zip.7zip                    26.04         26.05         winget\r\n"
     "Microsoft Visual C++ 2015-2022 R…   Microsoft.VCRedist.2015+.x64 14.44.35211.0 14.51.36247.0 winget\r\n"
     "CapCut                              XP9KN75RRB9NHS               9.7.0.4151    9.7.0.4153    msstore\r\n"
+    "Microsoft Edge                      Microsoft.Edge               155.0.4283.62 156.0.4314.56 winget\r\n"
     "3 upgrades available.\r\n"
     "\r\n"
     "The following packages have an upgrade available, but require explicit targeting for upgrade:\r\n"

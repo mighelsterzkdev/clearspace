@@ -23,6 +23,8 @@ import time
 TARGETS = {"cloudflare": "1.1.1.1", "google": "8.8.8.8"}
 PING_SAMPLES = 60
 PING_INTERVAL = 0.5
+# These update themselves through Microsoft Edge Update; winget cannot replace the system copy.
+SELF_UPDATING = frozenset(("Microsoft.Edge", "Microsoft.Edge.Beta", "Microsoft.Edge.Dev", "Microsoft.EdgeWebView2Runtime"))
 _PACKAGE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}")
 _HOST = re.compile(r"(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 _PERCENT = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s?%")
@@ -70,7 +72,7 @@ def parse_winget_table(text: str) -> list[dict]:
             break
         cells = [line[start:end].strip() for start, end in zip(starts, [*starts[1:], len(line)])]
         name, identifier, version, available = cells[:4]
-        if not (_PACKAGE_ID.fullmatch(identifier) and version and available):
+        if not (_PACKAGE_ID.fullmatch(identifier) and version and available) or identifier in SELF_UPDATING:
             continue
         packages.append({"id": identifier, "name": name, "version": version, "available": available,
                          "source": cells[4] if len(cells) > 4 else "", "status": "pending"})
