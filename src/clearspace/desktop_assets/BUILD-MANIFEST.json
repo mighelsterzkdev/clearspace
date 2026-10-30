@@ -11,7 +11,7 @@
     "postcss.config.js": "45027a2befa94d6f46875c529d1088c12548d8f0bee31133e4ebb00ebc581e33",
     "scripts/build-manifest.mjs": "6173c1e5d01617bd8dece98d039742faf1c6d275cc1e4f6c53519b1a9b6fe22c",
     "scripts/copy-assets.mjs": "130f693cea6c9221a2223b02e8fc81c62b46819b33e4c65d0ecb8d3920cdb9b3",
-    "src/App.tsx": "6be55998453a4d27589b53b5c2d85a9ff9e9f816cc949b5f2f724929b945a429",
+    "src/App.tsx": "940fcd9b5e19af7d661674b02d6827db16b8d1035c459c833f227997e9e417bd",
     "src/components/CategoryRow.tsx": "c833554dc5130ae79538aa24ed3131209728c13978080287adf7b3289103dd38",
     "src/components/CategoryToolbar.tsx": "cb5b78d9107b024740e7b48f2d18cb8a24b7636b94accd645fbf8bf4114b62eb",
     "src/components/CleanupResult.tsx": "919069a19732f879095b0bd1d703ba0a9a582e3de639a383109e1b3a6f22e299",
@@ -23,7 +23,7 @@
     "src/format.ts": "52930ff1773a0bc3874e8412827627ab18774c2ecafc2ae4481adc41ed78f29c",
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
-    "src/styles.css": "03bd657196ae61584e5f04a2493c01ed08060391ab52b7c834b1304dd23e1911",
+    "src/styles.css": "accb25ab173a926a60ff16cfdd1a265317033b7b5e47d2cfcdf17b568d592e3e",
     "src/test/App.test.tsx": "6b88917d56452b59fefa547e12de3c73cb5508da5a238cc20c20f8344ed057af",
     "src/test/setup.ts": "888a9496cb59c64df47334af0e7fcc540aff3e437a2632a815b532dcf9e0e02c",
     "src/types.ts": "7124e333b1515220e82fe91b628a157c20944f15f971837fa72df13b724d2ba8",
@@ -34,8 +34,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
-    "assets/index-BoejFzAD.js": "dda1cb80e6ae247e51c8278139e47b8586fb29695b3d9d45ee5d5d1c8ef2b15d",
-    "assets/index-DG5WmytE.css": "0d5720b97261f15a3657489485eaa688fde979433d3bc2eacf8fbcb1f694543a",
-    "index.html": "3a48ac9aa6043be51c3970826fd98656a7db2b8d4a8f376c1924dec5558e8e1e"
+    "assets/index-BVJPIDB2.css": "92cebcdda1219631d6ef90dd73a7068648bd86ad03d5765af3989775a41f3a14",
+    "assets/index-Dpw5lemC.js": "281a1a610b9b56cd3bb3fcaec17104c3bee4bdaf546de5eb5857e32ee18b8d37",
+    "index.html": "b3b9426f5840097e0b5f6ac24dd2310fe5c02befa7367132becc445b738b0bfb"
   }
 }
