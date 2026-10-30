@@ -128,6 +128,26 @@ def discover_categories(locations=None):
         roaming / "Slack" / leaf for leaf in ("Cache", "Code Cache", "GPUCache")
     ], group="Applications", processes=("slack.exe",))
 
+    # Spotify: Data holds streamed songs, which are fetched again; offline downloads live in Storage and are kept.
+    spotify = [local / "Spotify", local / "Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify"]
+    add("spotify_cache", "Spotify", "Cache of songs you have streamed and the app's web cache. Downloaded songs and your account are kept.", [
+        *(base / "Data" for base in spotify),
+        *(base / "Browser" / leaf for base in spotify for leaf in ("Cache", "Code Cache", "GPUCache")),
+    ], group="Applications", processes=("Spotify.exe",))
+
+    def webview2(*folders):
+        """Rendering-cache leaves of WebView2 profiles inside the given user data folders."""
+        return [profile / leaf for folder in folders for profile in _profiles(folder / "EBWebView", r"Default|WV2Profile_[A-Za-z0-9]+")
+                for leaf in ("Cache", "Code Cache", "GPUCache")]
+
+    add("teams_cache", "Microsoft Teams", "Web rendering cache. Chats, sign-in and settings are kept.", [
+        *(roaming / "Microsoft/Teams" / leaf for leaf in ("Cache", "Code Cache", "GPUCache")),
+        *webview2(local / "Packages/MSTeams_8wekyb3d8bbwe/LocalCache/Microsoft/MSTeams"),
+    ], group="Applications", processes=("ms-teams.exe", "Teams.exe"))
+    add("whatsapp_cache", "WhatsApp", "Web rendering cache. Chats, media and sign-in are kept.",
+        webview2(local / "Packages/5319275A.WhatsAppDesktop_cv1g1gvanyjgm/LocalCache"),
+        group="Applications", processes=("WhatsApp.exe", "WhatsApp.Root.exe"))
+
     add("pip_cache", "Python package cache", "Cached downloads and built wheels. Installed packages are kept.", [
         local / "pip/Cache" / leaf for leaf in ("http", "http-v2", "wheels")
     ], group="Developer tools", processes=("pip.exe", "pip3.exe"))

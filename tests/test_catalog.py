@@ -348,6 +348,39 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(all(not path.exists() for path in removed))
         self.assertTrue(all(path.exists() for path in kept))
 
+    def test_spotify_teams_and_whatsapp_cleanup_keeps_downloads_chats_and_sign_in(self):
+        teams = Path("Packages/MSTeams_8wekyb3d8bbwe/LocalCache/Microsoft/MSTeams/EBWebView")
+        whatsapp = Path("Packages/5319275A.WhatsAppDesktop_cv1g1gvanyjgm/LocalCache/EBWebView")
+        removed = {
+            "spotify_cache": [self.file_at("local", "Spotify/Data/0a/stream.file"), self.file_at("local", "Spotify/Browser/Cache/Cache_Data/entry"),
+                              self.file_at("local", "Packages/SpotifyAB.SpotifyMusic_zpdnekdrzrea0/LocalCache/Spotify/Data/1b/stream.file")],
+            "teams_cache": [self.file_at("roaming", "Microsoft/Teams/Cache/entry"), self.file_at("local", teams / "WV2Profile_tfw/Code Cache/js/entry")],
+            "whatsapp_cache": [self.file_at("local", whatsapp / "Default/GPUCache/data_0")],
+        }
+        kept = [
+            self.file_at("local", "Spotify/Storage/offline-song.file"),
+            self.file_at("local", "Spotify/Browser/Local Storage/leveldb/account.log"),
+            self.file_at("local", "Spotify/Users/user-settings/prefs"),
+            self.file_at("roaming", "Microsoft/Teams/Local Storage/leveldb/sign-in.log"),
+            self.file_at("local", teams / "WV2Profile_tfw/IndexedDB/chats.db"),
+            self.file_at("local", teams / "WV2Profile_tfw/Network/Cookies"),
+            self.file_at("local", whatsapp / "Default/IndexedDB/messages.db"),
+            self.file_at("local", "Packages/5319275A.WhatsAppDesktop_cv1g1gvanyjgm/LocalState/shared/transfers/photo.jpg"),
+        ]
+        categories = self.categories()
+        self.assert_not_targeted(categories, kept)
+        cleaner = Cleaner(categories.values(), process_provider=lambda: set())
+        plan = cleaner.scan(list(removed))
+        for identifier, paths in removed.items():
+            with self.subTest(category=identifier):
+                self.assertEqual({entry.path for entry in plan.entries if entry.category_id == identifier}, set(paths))
+        result = cleaner.clean(plan, list(removed))
+        self.assertEqual(result.deleted_files, sum(map(len, removed.values())))
+        self.assertTrue(all(path.exists() for path in kept))
+        busy = Cleaner(self.categories().values(), process_provider=lambda: {"Spotify.exe", "ms-teams.exe", "WhatsApp.Root.exe"})
+        self.file_at("local", "Spotify/Data/0a/stream.file")
+        self.assertTrue(all("Close" in (stats.reason or "") for stats in busy.scan(list(removed)).category_stats))
+
     def test_new_cache_and_setup_categories_require_their_applications_closed(self):
         files = [
             self.file_at("local", "Steam/htmlcache/Default/Cache/cached-page"),

@@ -6,6 +6,7 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ## Version 0.5.0
 
+- Spotify, Microsoft Teams and WhatsApp caches. Offline songs, chats and sign-in are kept.
 - Opens without a Windows permission prompt. When selected system cleanup needs it, **Restart as administrator** asks Windows once; cancelling keeps the app open.
 - Portuguese (Brazil) and English interface; the **PT/EN** button switches language, which starts matching Windows.
 - Shows the system drive's free space. After an analysis, categories with nothing to clean collapse into one list.
@@ -15,7 +16,7 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 ## Version 0.4.1
 
 - No minimum file age: recent temporary files and caches are eligible too.
-- 34 categories covering the Recycle Bin, temporary files, diagnostics, caches, recent histories, and native Windows maintenance.
+- 37 categories covering the Recycle Bin, temporary files, diagnostics, caches, recent histories, and native Windows maintenance.
 - Windows update/component cleanup through DISM, plus Delivery Optimization cache cleanup through its Windows module.
 - Slow Windows analyses have their own wait budget. Native operations queue without overlap; unfinished work is marked pending instead of a cleanup failure.
 - One launcher: `start.cmd`.

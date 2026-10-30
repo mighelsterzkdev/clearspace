@@ -24,7 +24,7 @@
     "src/format.ts": "ad7499e94dfaf162d8b068f9b25918a99f425e1d98a0fef500732e8b69b56030",
     "src/i18n.ts": "ce4c16edab2bca28b5d0c79e3fffe10d08f347f42d71d7009ea6b61ab1b60b63",
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
-    "src/locales/pt.ts": "6755a0d1df82098b986c3e7c6aecd08a2f5180e9ed15ec8470b832036c6d1c03",
+    "src/locales/pt.ts": "438eb1826008af3b6f082e0afcc2bdc96387714ac1136f04fb0d1656a4eba26d",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
     "src/styles.css": "8865f930e0098fac233f8f140b50539df2eed9e04a764b9ae9e22aa9189c4442",
     "src/test/App.test.tsx": "09ff8476c591f65d6c81580f122b17fddcf90cdcb52be23203b9ddb47553a709",
@@ -37,8 +37,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
+    "assets/index-BTdAspYG.js": "cd49ca111d1771c02d4db59e4bcf3bb20a7a5d7580236b20e31c4374949d8a11",
     "assets/index-CINQL9Kp.css": "93af6caf21f317169b7fd453fc1dbffca62cf4d3dd034dc1ca91216105286e4e",
-    "assets/index-DelIMo_x.js": "7e5aff681e7a262c5efe29548fbc441f067e3deb80171a1725958aea23f6a43a",
-    "index.html": "1f6b0e6353c7329a8cbc99bad5bd2fb3695bcf6767a28496eaaff9b00c633e55"
+    "index.html": "eff2a7ae1b3f936cf1c305c3ce85a4d5c91cc8816beafbaf95033927af5adc23"
   }
 }

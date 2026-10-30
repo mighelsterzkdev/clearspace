@@ -28,6 +28,8 @@ All production categories have minimum age **0**. Existing file locks, permissio
 | VS Code / Cursor | Explicit rendering/compiled-code caches and cached VSIX downloads; never `User`, workspace storage, or installed extensions |
 | Epic Games Launcher | Known `Saved/webcache[_digits]` profiles and optional `Default`: only rendering-cache leaves |
 | Steam / Slack | Specific web rendering `Cache`, `Code Cache`, `GPUCache` leaves; browser/account stores and games are kept |
+| Spotify | `Data` (streamed-song cache) and the `Browser` rendering-cache leaves, for the installer and Microsoft Store versions; never `Storage` (offline downloads) or `Users` |
+| Teams / WhatsApp | Classic Teams `Cache`, `Code Cache`, `GPUCache`; new Teams and WhatsApp WebView2 profiles under their package `LocalCache`: only those leaves, never `IndexedDB`, `Local Storage`, `Network` or `LocalState` |
 | pip | Default `http`, `http-v2`, `wheels` cache leaves |
 | npm | Default `npm-cache/_cacache`; never projects, global modules, or `_npx` installations |
 | NuGet | Default `NuGet/v3-cache` HTTP responses; never global installed packages |
@@ -53,6 +55,8 @@ Browser and app scopes were compared with BleachBit's [Explorer](https://github.
 BleachBit's [Discord cache definition](https://github.com/bleachbit/bleachbit/blob/master/cleaners/discord.xml) describes an impact on favorited GIFs. Clearspace therefore omits Discord's main `Cache` directory and retains only code/GPU caches.
 
 Epic's publisher documents rebuilding its web cache in [this support article](https://www.epicgames.com/help/en-US/c-Category_EpicAccounts/c-TechnicalSupport_GeneralSupport/a000086158). Clearspace narrows that scope to rendering-cache leaves to retain profile/account storage.
+
+Spotify keeps offline downloads in its `Storage` folder and rebuilds `Data` while streaming, as BleachBit's [Spotify definition](https://github.com/bleachbit/bleachbit/blob/master/cleaners/spotify.xml) and Winapp2 also treat it. Teams and WhatsApp desktop render through WebView2 or Chromium profiles; Clearspace removes the same rendering-cache leaves as for browsers and keeps chat databases, local storage, cookies and received media. Microsoft's documented [Teams cache reset](https://learn.microsoft.com/en-us/troubleshoot/microsoftteams/teams-administration/clear-teams-cache) clears the whole folder and signs the user out, which Clearspace deliberately does not do.
 
 Package cache behavior is documented by [pip](https://pip.pypa.io/en/stable/topics/caching/), [npm](https://docs.npmjs.com/cli/v11/commands/npm-cache/#details), and [NuGet](https://github.com/NuGet/docs.microsoft.com-nuget/blob/main/docs/consume-packages/managing-the-global-packages-and-cache-folders.md). uv is excluded because its [official cache documentation](https://github.com/astral-sh/uv/blob/main/docs/concepts/cache.md) requires coordination through its own commands and locks.
 
