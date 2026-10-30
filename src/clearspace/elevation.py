@@ -1,9 +1,9 @@
-"""Ask Windows for administrator permission before starting the desktop app.
+"""Restart the desktop app with administrator permission when the user asks.
 
 Only this app's own executable, or its own source interpreter/module, can be
 relaunched. Caller arguments, paths and shell commands are never forwarded.
-The fixed relaunch marker prevents repeated UAC prompts if Windows does not
-grant an administrator token. Importing this module never requests elevation.
+The fixed relaunch marker identifies the elevated copy. Importing this module
+never requests elevation.
 The portable --self-check entry point bypasses the GUI and this helper.
 
 References:
@@ -21,9 +21,6 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Callable
-
-from .maintenance import is_administrator
-
 
 _RELAUNCH_MARKER = "--clearspace-elevated"
 _ERROR_CANCELLED = 1223
@@ -130,28 +127,23 @@ def _request_elevation(command: _RelaunchCommand, *, shell=None, ole=None) -> in
             ole.CoUninitialize()
 
 
-def ensure_administrator(*, administrator: Callable[[], bool] | None = None,
-                         request: Callable[[_RelaunchCommand], int] | None = None) -> bool:
-    """Return True to start the GUI, False after relaunch or UAC cancellation.
+def relaunch_as_administrator(*, request: Callable[[_RelaunchCommand], int] | None = None) -> bool:
+    """Start an elevated copy of this app. False means the user declined UAC.
 
-    ``administrator`` and ``request`` are internal test seams. Production calls
-    take no arguments, so neither the renderer nor the command line can choose
-    an executable to elevate. Cancellation closes the initial app quietly.
+    The caller closes the current window after a successful launch.
     """
     if os.name != "nt":
         raise ElevationError("Clearspace currently supports Windows 10/11 only.")
-    administrator = administrator or is_administrator
-    if administrator():
-        return True
-    if _RELAUNCH_MARKER in sys.argv[1:]:
-        raise ElevationError("Windows did not grant administrator permission. Open Clearspace again and approve the Windows permission request.")
     try:
         command = _relaunch_command()
         result = (request or _request_elevation)(command)
     except ElevationError:
         raise
     except OSError as error:
-        raise ElevationError("Windows could not request administrator permission. Open Clearspace again or use Run as administrator.") from error
-    if result in (0, _ERROR_CANCELLED):
+        raise ElevationError("Windows could not request administrator permission. Try again or use Run as administrator.") from error
+    if result == _ERROR_CANCELLED:
         return False
-    raise ElevationError(f"Windows could not start Clearspace as administrator (code {result & 0xFFFFFFFF}). Open the app again or use Run as administrator.")
+    if result:
+        raise ElevationError(f"Windows could not start Clearspace as administrator (code {result & 0xFFFFFFFF}). Try again or use Run as administrator.")
+    return True
+

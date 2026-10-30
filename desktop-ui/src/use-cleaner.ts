@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { initialState, type CleanerApi, type CleanerState } from './types'
+import { t } from './i18n'
 
-type Mutation = 'set_selection' | 'scan' | 'cancel' | 'clean' | 'open_search_settings' | 'set_theme'
+type Mutation = 'set_selection' | 'scan' | 'cancel' | 'clean' | 'open_search_settings' | 'set_theme' | 'set_language' | 'restart_as_administrator'
 
 export function useCleaner() {
   const [state, setState] = useState<CleanerState>(initialState)
@@ -57,9 +58,9 @@ export function useCleaner() {
         const response = await operation(...args)
         if (!alive.current) return null
         if (response.ok) { setState(response.state); setConnected(true); return response.state }
-        setError(response.error)
+        setError(t(response.error))
       } catch {
-        if (alive.current) { setConnected(false); setError('The desktop connection was interrupted. Please try again.') }
+        if (alive.current) { setConnected(false); setError(t('The desktop connection was interrupted. Please try again.')) }
       } finally {
         occupied.current = false
         queued.current -= 1

@@ -161,8 +161,14 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(DesktopApi(service).set_theme("../dark")["ok"])
         self.assertEqual(service.set_theme("light")["theme"], "light")
         stored = json.loads((self.data_dir / "appearance.json").read_text())
-        self.assertEqual(stored, {"version": 1, "theme": "light"})
+        self.assertEqual(stored, {"version": 1, "theme": "light", "language": "system"})
         self.assertEqual(self.service().get_state()["theme"], "light")
+        for language in ("fr", None, "../pt"):
+            with self.assertRaises(ServiceError):
+                service.set_language(language)
+        self.assertEqual(service.set_language("pt")["language"], "pt")
+        self.assertEqual(self.service().get_state()["theme"], "light")
+        self.assertEqual(self.service().get_state()["language"], "pt")
         (self.data_dir / "appearance.json").write_text('{"theme": "neon"}')
         self.assertEqual(self.service().get_state()["theme"], "system")
         engine = ControlledCleaner(blocked=True)

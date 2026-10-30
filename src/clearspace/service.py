@@ -8,13 +8,16 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import threading
+import time
 
 from . import __version__
 from .engine import Cleaner
 from .windows import local_app_data
 
 THEMES = ("system", "dark", "light")
+LANGUAGES = ("system", "pt", "en")
 
 
 class ServiceError(ValueError):
@@ -22,8 +25,11 @@ class ServiceError(ValueError):
 
 
 class CleanerService:
-    def __init__(self, cleaner=None, data_dir=None):
+    def __init__(self, cleaner=None, data_dir=None, administrator=None):
         self._cleaner = cleaner if cleaner is not None else Cleaner()
+        if administrator is None:
+            from .maintenance import is_administrator as administrator
+        self._administrator = administrator
         self._data_dir = Path(data_dir) if data_dir is not None else local_app_data() / "Clearspace"
         self._lock = threading.RLock()
         self._cancel = threading.Event()
@@ -33,7 +39,8 @@ class CleanerService:
         self._categories = {category.id: category for category in self._cleaner.categories}
         defaults = [item.id for item in self._categories.values() if item.default_selected and item.available]
         self._selected = self._read_selection(defaults)
-        self._theme = self._read_theme()
+        self._theme, self._language = self._read_appearance()
+        self._disk = (0.0, None)
         self._state = {
             "version": __version__, "phase": "idle", "categories": [], "scan_id": None,
             "scanned_at": None, "progress": self._empty_progress(), "result": None, "error": None,
@@ -63,16 +70,29 @@ class CleanerService:
         except (OSError, ValueError):
             return set(defaults)
 
-    def _read_theme(self):
+    def _read_appearance(self):
         try:
             path = self._data_dir / "appearance.json"
             if path.stat().st_size > 4096:
-                return "system"
+                return "system", "system"
             value = json.loads(path.read_text(encoding="utf-8"))
-            theme = value.get("theme") if isinstance(value, dict) else None
-            return theme if theme in THEMES else "system"
+            value = value if isinstance(value, dict) else {}
+            theme, language = value.get("theme"), value.get("language")
+            return theme if theme in THEMES else "system", language if language in LANGUAGES else "system"
         except (OSError, ValueError):
-            return "system"
+            return "system", "system"
+
+    def _disk_space(self):
+        """System drive space, refreshed at most every two seconds while polling."""
+        checked, value = self._disk
+        if time.monotonic() - checked > 2:
+            try:
+                usage = shutil.disk_usage(Path(os.environ.get("SystemDrive", "C:") + os.sep))
+                value = {"drive": os.environ.get("SystemDrive", "C:"), "free": usage.free, "total": usage.total}
+            except (OSError, ValueError):
+                value = None
+            self._disk = (time.monotonic(), value)
+        return deepcopy(value)
 
     def _write_json(self, name, value):
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +131,9 @@ class CleanerService:
         with self._lock:
             state = deepcopy(self._state)
             state["theme"] = self._theme
+            state["language"] = self._language
+            state["disk"] = self._disk_space()
+            state["administrator"] = self._administrator()
             from .maintenance import maintenance_activity
             activity = maintenance_activity()
             state["maintenance"] = deepcopy(activity)
@@ -164,11 +187,27 @@ class CleanerService:
                 raise ServiceError("Clearspace is closing.")
             # Appearance is independent of any running analysis or cleanup.
             self._theme = theme
-            try:
-                self._write_json("appearance.json", {"version": 1, "theme": theme})
-            except OSError:
-                self._state["error"] = "The theme changed, but it could not be saved."
-            return self.get_state()
+            return self._save_appearance("The theme changed, but it could not be saved.")
+
+    def set_language(self, language):
+        if language not in LANGUAGES:
+            raise ServiceError("Choose a supported language.")
+        with self._lock:
+            if self._closed:
+                raise ServiceError("Clearspace is closing.")
+            self._language = language
+            return self._save_appearance("The language changed, but it could not be saved.")
+
+    def _save_appearance(self, failure):
+        try:
+            self._write_json("appearance.json", {"version": 1, "theme": self._theme, "language": self._language})
+        except OSError:
+            self._state["error"] = failure
+        return self.get_state()
+
+    def language(self):
+        with self._lock:
+            return self._language
 
     def theme(self):
         with self._lock:

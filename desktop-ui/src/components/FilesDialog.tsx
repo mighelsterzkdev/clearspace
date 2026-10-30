@@ -4,6 +4,7 @@ import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog'
 import { countFiles, formatBytes } from '../format'
 import type { FileItem } from '../types'
+import { locale, t } from '../i18n'
 
 export interface FileSelection { scanId: string; categoryId: string; title: string }
 interface Props { selection: FileSelection | null; scanId: string | null; onClose: () => void }
@@ -28,9 +29,9 @@ export function FilesDialog({ selection, scanId, onClose }: Props) {
         setItems(previous => offset === 0 ? response.items : [...previous, ...response.items])
         setTotal(response.total)
         setNextOffset(response.next_offset)
-      } else setError(response.error)
+      } else setError(t(response.error))
     } catch {
-      if (generation.current === token) setError('Could not load the file list. Close this window and try again.')
+      if (generation.current === token) setError(t('Could not load the file list. Close this window and try again.'))
     } finally { if (generation.current === token) setLoading(false) }
   }, [])
 
@@ -49,18 +50,18 @@ export function FilesDialog({ selection, scanId, onClose }: Props) {
 
   return <Dialog open={open} onOpenChange={value => { if (!value) onClose() }}>
     <DialogContent className="files-dialog">
-      <DialogHeader><DialogTitle>{selection?.title ?? 'Files'}</DialogTitle>
-        <DialogDescription>Files found during this analysis. Paths are shown for review.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{selection ? t(selection.title) : t('Files')}</DialogTitle>
+        <DialogDescription>{t('Files found during this analysis. Paths are shown for review.')}</DialogDescription></DialogHeader>
       {error ? <p role="alert" className="inline-error">{error}</p> : null}
-      <ul className="file-list" aria-label="Files found" aria-busy={loading}>
+      <ul className="file-list" aria-label={t('Files found')} aria-busy={loading}>
         {items.map(item => <li key={item.path}><File className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div><p title={item.name}>{item.name}</p><span title={item.path}>{item.path}</span></div>
           <span className="file-size">{formatBytes(item.bytes)}</span></li>)}
       </ul>
-      {loading ? <p className="dialog-loading" role="status"><LoaderCircle className="size-4 animate-spin" />Loading files…</p> : null}
-      {!loading && !error && items.length === 0 ? <p className="field-help">No files were found in this category.</p> : null}
-      <DialogFooter className="files-dialog-footer"><span className="field-help">{countFiles(items.length)} shown{total > items.length ? ` of ${total.toLocaleString('en-US')}` : ''}</span>
-        <div>{nextOffset !== null && selection ? <Button variant="outline" disabled={loading} onClick={() => void load(selection.scanId, selection.categoryId, nextOffset, generation.current)}>Load more</Button> : null}<Button variant="outline" onClick={onClose}>Close</Button></div>
+      {loading ? <p className="dialog-loading" role="status"><LoaderCircle className="size-4 animate-spin" />{t('Loading files…')}</p> : null}
+      {!loading && !error && items.length === 0 ? <p className="field-help">{t('No files were found in this category.')}</p> : null}
+      <DialogFooter className="files-dialog-footer"><span className="field-help">{total > items.length ? t('{files} shown of {total}', { files: countFiles(items.length), total: total.toLocaleString(locale()) }) : t('{files} shown', { files: countFiles(items.length) })}</span>
+        <div>{nextOffset !== null && selection ? <Button variant="outline" disabled={loading} onClick={() => void load(selection.scanId, selection.categoryId, nextOffset, generation.current)}>{t('Load more')}</Button> : null}<Button variant="outline" onClick={onClose}>{t('Close')}</Button></div>
       </DialogFooter>
     </DialogContent>
   </Dialog>

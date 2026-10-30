@@ -13,8 +13,9 @@ import sys
 import threading
 from urllib.parse import unquote, urlsplit
 
-from . import APP_NAME, frame
-from .elevation import ElevationError, ensure_administrator
+from . import APP_NAME, frame, shell
+from .elevation import ElevationError, relaunch_as_administrator
+from .maintenance import is_administrator
 from .service import CleanerService, ServiceError
 from .windows import local_app_data
 
@@ -80,6 +81,62 @@ class DesktopApi:
         if response["ok"] and self._window is not None:
             _apply_titlebar(self._window, _uses_dark_titlebar(theme))
         return response
+
+    def set_language(self, language):
+        return self._call(self._service.set_language, language)
+
+    def restart_as_administrator(self):
+        def restart():
+            if self._service.active():
+                raise ServiceError("Wait for the current operation or stop it first.")
+            try:
+                launched = relaunch_as_administrator()
+            except ElevationError as error:
+                raise ServiceError(str(error)) from error
+            if launched and self._window is not None:
+                # The elevated copy owns the session now; cancelling UAC keeps this one.
+                self._window.destroy()
+            return self._service.get_state()
+        return self._call(restart)
+
+
+_NOTICES = {
+    "pt": {"analyzed": ("Análise concluída", "{size} podem ser liberados."), "cleaned": ("Limpeza concluída", "{size} liberados."),
+           "failed": ("Limpeza concluída com erros", "{size} liberados. Abra o Clearspace para ver os detalhes.")},
+    "en": {"analyzed": ("Analysis complete", "{size} can be freed."), "cleaned": ("Cleanup complete", "{size} freed."),
+           "failed": ("Cleanup finished with errors", "{size} freed. Open Clearspace for details.")},
+}
+
+
+def _size(value):
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+
+
+def _watch(service, feedback, stop):
+    """Mirror analysis and cleanup on the taskbar and report when they finish."""
+    previous = None
+    while not stop.wait(0.5):
+        try:
+            state = service.get_state()
+        except Exception:
+            continue
+        phase = state["phase"]
+        feedback.progress(shell.INDETERMINATE if phase in ("scanning", "cleaning") else shell.NO_PROGRESS)
+        if previous in ("scanning", "cleaning") and phase in ("ready", "completed"):
+            notices = _NOTICES[shell.language(service.language())]
+            if phase == "ready":
+                size = sum(row["bytes"] for row in state["categories"] if row["selected"] and row["available"])
+                key = "analyzed"
+            else:
+                result = state.get("result") or {}
+                size = result.get("freed_bytes", 0)
+                key = "failed" if result.get("failed") or result.get("actions_failed") else "cleaned"
+            title, message = notices[key]
+            feedback.notify(title, message.format(size=_size(size)))
+        previous = phase
 
 
 class _AssetHandler(BaseHTTPRequestHandler):
@@ -230,12 +287,6 @@ def main():
     if os.name != "nt":
         _fatal("Clearspace currently supports Windows 10/11 only.")
         return 1
-    try:
-        if not ensure_administrator():
-            return 0
-    except ElevationError as error:
-        _fatal(str(error))
-        return 1
     _enable_per_monitor_dpi()
     if not (ASSETS / "index.html").is_file():
         _fatal("The interface is missing. Extract the complete portable package, or rebuild desktop-ui.")
@@ -243,7 +294,7 @@ def main():
     for stream in ("stdout", "stderr"):
         if getattr(sys, stream) is None:
             setattr(sys, stream, open(os.devnull, "w", encoding="utf-8"))
-    server, service = None, None
+    server, service, stop = None, None, threading.Event()
     try:
         import webview
         service = CleanerService()
@@ -261,6 +312,8 @@ def main():
         window.events.before_show += partial(_guard_navigation, window, server.url)
         window.events.before_show += partial(_apply_titlebar, window, dark)
         window.events.before_show += partial(frame.use_custom_frame, window)
+        feedback = shell.Feedback(window, APP_NAME)
+        window.events.shown += lambda: threading.Thread(target=_watch, args=(service, feedback, stop), name="clearspace-feedback", daemon=True).start()
 
         def closing():
             if service.active() and not window.create_confirmation_dialog(
@@ -271,14 +324,17 @@ def main():
             return True
 
         window.events.closing += closing
-        storage = local_app_data() / "Clearspace" / "webview2"
+        # An elevated WebView2 cannot share a profile with a standard one that may still be closing.
+        storage = local_app_data() / "Clearspace" / ("webview2-admin" if is_administrator() else "webview2")
         storage.mkdir(parents=True, exist_ok=True)
-        webview.start(gui="edgechromium", debug=False, private_mode=True, storage_path=str(storage))
+        icon = Path(__file__).resolve().parents[2] / "assets" / "clearspace.ico"  # a packaged app uses its executable's icon
+        webview.start(gui="edgechromium", debug=False, private_mode=True, storage_path=str(storage), icon=str(icon) if icon.is_file() else None)
         return 0
     except Exception:
         _fatal("Clearspace could not start. Check that the complete app is extracted and Microsoft Edge WebView2 Runtime is installed.")
         return 1
     finally:
+        stop.set()
         if service is not None:
             service.shutdown()
         if server is not None:

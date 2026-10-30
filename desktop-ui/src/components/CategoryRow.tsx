@@ -2,6 +2,7 @@ import { AppWindow, Check, Eye, Files, Globe2, History, Package, Settings2, Tras
 import { Button } from './ui/button'
 import { countFiles, countItems, formatBytes, isHistoryAction, isNativeAction, isRecycleBin } from '../format'
 import type { Category } from '../types'
+import { t } from '../i18n'
 
 interface Props {
   category: Category; disabled: boolean; analyzed: boolean; detailsEnabled: boolean;
@@ -17,12 +18,12 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSe
     : category.group === 'Browsers' || /^(chrome|edge|firefox)_/.test(category.id) ? Globe2 : Files
   const id = `category-${category.id}`
   const scanned = analyzed && category.selected
-  const size = !scanned || category.analysis_error || category.analysis_pending ? '—' : history ? 'History cleanup' : category.size_known === false ? 'Managed by Windows' : formatBytes(category.bytes)
-  let detail = category.selected ? 'Ready to analyze' : 'Not selected'
-  if (!category.available) detail = 'Unavailable'
-  else if (scanned && category.analysis_error) detail = 'Needs attention'
-  else if (scanned && category.analysis_pending) detail = 'Waiting for Windows'
-  else if (scanned) detail = native ? (category.actions || 0) > 0 ? 'Ready to clean' : 'Nothing to clean' : recycleBin ? countItems(category.files) : countFiles(category.files)
+  const size = !scanned || category.analysis_error || category.analysis_pending ? '—' : history ? t('History cleanup') : category.size_known === false ? t('Managed by Windows') : formatBytes(category.bytes)
+  let detail = category.selected ? t('Ready to analyze') : t('Not selected')
+  if (!category.available) detail = t('Unavailable')
+  else if (scanned && category.analysis_error) detail = t('Needs attention')
+  else if (scanned && category.analysis_pending) detail = t('Waiting for Windows')
+  else if (scanned) detail = native ? (category.actions || 0) > 0 ? t('Ready to clean') : t('Nothing to clean') : recycleBin ? countItems(category.files) : countFiles(category.files)
   return <li className={`category-row ${category.available ? '' : 'category-unavailable'}`}>
     <span className="category-checkbox">
       <input id={id} type="checkbox" checked={category.selected} disabled={disabled || !category.available}
@@ -31,15 +32,15 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSe
     </span>
     <Icon className="category-icon" aria-hidden="true" />
     <label htmlFor={id} className="category-copy">
-      <span id={`${id}-title`} className="category-title">{category.title}</span>
-      <span id={`${id}-description`} className="category-description">{category.reason || category.description}</span>
+      <span id={`${id}-title`} className="category-title">{t(category.title)}</span>
+      <span id={`${id}-description`} className="category-description">{t(category.reason || category.description)}</span>
     </label>
     <div className="category-actions">
       <div className="category-metrics">
         <span>{size}</span>
         <span>{detail}</span>
       </div>
-      {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon" aria-label={`View files for ${category.title}`} title="View files"
+      {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon" aria-label={t('View files for {title}', { title: t(category.title) })} title={t('View files')}
         disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>}
     </div>
   </li>

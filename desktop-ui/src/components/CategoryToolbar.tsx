@@ -1,5 +1,6 @@
 import { CheckCheck } from 'lucide-react'
 import { Button } from './ui/button'
+import { t } from '../i18n'
 
 interface Props {
   disabled: boolean; selected: number; available: number;
@@ -7,13 +8,13 @@ interface Props {
 }
 
 export function CategoryToolbar({ disabled, selected, available, onSelectAll, onClear }: Props) {
-  return <div className="category-toolbar" aria-label="Category selection">
+  return <div className="category-toolbar" aria-label={t('Category selection')}>
     <div className="selection-tools">
       <Button variant="outline" size="sm" disabled={disabled || available === 0 || selected === available} onClick={onSelectAll}>
-        <CheckCheck />Select all
+        <CheckCheck />{t('Select all')}
       </Button>
-      <Button variant="ghost" size="sm" disabled={disabled || selected === 0} onClick={onClear}>Clear selection</Button>
+      <Button variant="ghost" size="sm" disabled={disabled || selected === 0} onClick={onClear}>{t('Clear selection')}</Button>
     </div>
-    <span>{selected} of {available} selected</span>
+    <span>{t('{selected} of {available} selected', { selected, available })}</span>
   </div>
 }

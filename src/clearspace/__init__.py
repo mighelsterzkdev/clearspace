@@ -1,4 +1,4 @@
 """Clearspace: inspect first, clean selected temporary files second."""
 
 APP_NAME = "Clearspace"
-__version__ = "0.4.1"
+__version__ = "0.5.0"

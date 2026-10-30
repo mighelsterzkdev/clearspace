@@ -62,7 +62,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="clearspace-build-") as temporary:
         work = Path(temporary)
         command = [sys.executable, "-B", "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--windowed",
-                   "--name", "clearspace", "--icon", "NONE", "--manifest", str(ROOT / "scripts/windows_gui.manifest"),
+                   "--name", "clearspace", "--icon", str(ROOT / "assets/clearspace.ico"), "--manifest", str(ROOT / "scripts/windows_gui.manifest"),
                    "--distpath", str(work / "dist"), "--workpath", str(work / "work"), "--specpath", str(work),
                    "--paths", str(ROOT / "src"), "--collect-data", "webview", "--collect-binaries", "webview",
                    "--hidden-import", "webview.platforms.edgechromium", "--hidden-import", "webview.platforms.winforms",
@@ -91,7 +91,7 @@ def main():
         "Analyze first, inspect the file list, then confirm Clean selected. Cleanup never starts automatically.\n"
         "Select all or choose categories, then Analyze and confirm Clean selected.\n"
         "34 categories cover temporary files, recent histories, diagnostics, application caches and native Windows maintenance.\n"
-        "The app requests administrator permission automatically when it opens. Cancelling the Windows prompt closes the app.\n"
+        "The app opens without a permission prompt. Use Restart as administrator for protected system cleanup.\n"
         "System cleanup uses Windows tools and may not report an exact removed size.\n"
         "Native Windows maintenance cannot be stopped after it starts; Stop prevents later actions.\n"
         "Slow Windows analyses have their own wait budget. Operations queue; unfinished work is shown as Pending.\n"

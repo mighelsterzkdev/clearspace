@@ -4,13 +4,21 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.5.0
+
+- Opens without a Windows permission prompt. When selected system cleanup needs it, **Restart as administrator** asks Windows once; cancelling keeps the app open.
+- Portuguese (Brazil) and English interface; the **PT/EN** button switches language, which starts matching Windows.
+- Shows the system drive's free space. After an analysis, categories with nothing to clean collapse into one list.
+- Taskbar progress while analyzing or cleaning, and a Windows notification when it finishes in the background.
+- App icon.
+
 ## Version 0.4.1
 
 - No minimum file age: recent temporary files and caches are eligible too.
 - 34 categories covering the Recycle Bin, temporary files, diagnostics, caches, recent histories, and native Windows maintenance.
 - Windows update/component cleanup through DISM, plus Delivery Optimization cache cleanup through its Windows module.
 - Slow Windows analyses have their own wait budget. Native operations queue without overlap; unfinished work is marked pending instead of a cleanup failure.
-- One launcher: `start.cmd`. Windows asks for administrator permission when the desktop app opens.
+- One launcher: `start.cmd`.
 - Recent-file shortcuts, recent-document records, Run dialog commands, and File Explorer search history.
 - Expanded crash dumps and Windows setup/update logs, plus Steam and Slack rendering caches.
 - A direct category list with **Select all** and **Clear selection**. Unavailable categories stay collapsed.
@@ -22,7 +30,7 @@ Clearspace removes selected data permanently after the review confirmation. Recy
 
 Original documents, installed applications, browser cookies/passwords, and pinned Jump List items are kept. Clearspace clears only specific selected history values in the registry; it does not repair or broadly prune the registry. Local Windows 10/11 x64 installations are supported.
 
-Open **`start.cmd`** or the portable executable. The desktop app requests administrator permission automatically; cancelling the Windows prompt closes the app. An already elevated app continues without another prompt. Windows update/component and Delivery Optimization cleanup use Windows tools, preserve pinned downloads, never use DISM `/ResetBase`, and do not restart the computer. A pending Windows update/restart can prevent component cleanup. Once native maintenance starts, Stop prevents subsequent actions; the running Windows operation must finish.
+Open **`start.cmd`** or the portable executable. The app opens with standard permission; protected system files are skipped. **Restart as administrator** reopens it elevated when selected system cleanup needs it; cancelling the Windows prompt keeps the current window. An already elevated app shows no prompt. Windows update/component and Delivery Optimization cleanup use Windows tools, preserve pinned downloads, never use DISM `/ResetBase`, and do not restart the computer. A pending Windows update/restart can prevent component cleanup. Once native maintenance starts, Stop prevents subsequent actions; the running Windows operation must finish.
 
 Component-store analysis can take several minutes. Its native wait does not consume the filesystem analysis budget. Progress distinguishes analysis, cleanup and waiting for a previous command. Stop can end the app's wait without terminating Windows servicing; any Windows process still running is shown separately. If the wait limit is reached, the result says **Pending**, and a new analysis is required before unfinished cleanup can run.
 

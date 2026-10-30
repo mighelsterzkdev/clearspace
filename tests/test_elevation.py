@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import unittest
 
 from clearspace import elevation, gui
-from clearspace.elevation import ElevationError, ensure_administrator
+from clearspace.elevation import ElevationError, relaunch_as_administrator
 
 
 class ElevationTests(unittest.TestCase):
@@ -36,19 +36,12 @@ class ElevationTests(unittest.TestCase):
         self.assertEqual(elevation._SHELLEXECUTEINFOW.nShow.offset, 48)
         self.assertEqual(elevation._SHELLEXECUTEINFOW.hProcess.offset, 104)
 
-    def test_already_admin_continues_without_relaunch_or_runtime_lookup(self):
-        request = MagicMock()
-        with patch.object(elevation, "_relaunch_command") as command:
-            self.assertTrue(ensure_administrator(administrator=lambda: True, request=request))
-        command.assert_not_called()
-        request.assert_not_called()
-
     def test_source_relaunch_uses_own_windowless_isolated_module_only(self):
         request = MagicMock(return_value=0)
         with patch.object(elevation.sys, "executable", str(self.python)), \
                 patch.object(elevation.sys, "frozen", False, create=True), \
                 patch.object(elevation.sys, "argv", ["clearspace", "--anything", r"C:\unrelated.exe"]):
-            self.assertFalse(ensure_administrator(administrator=lambda: False, request=request))
+            self.assertTrue(relaunch_as_administrator(request=request))
         command = request.call_args.args[0]
         self.assertEqual(command.executable, str(self.pythonw.resolve()))
         self.assertEqual(command.arguments, ("-I", "-B", "-m", "clearspace.gui", "--clearspace-elevated"))
@@ -61,31 +54,18 @@ class ElevationTests(unittest.TestCase):
         with patch.object(elevation.sys, "executable", str(self.frozen)), \
                 patch.object(elevation.sys, "frozen", True, create=True), \
                 patch.object(elevation.sys, "argv", ["clearspace", "--arbitrary-path", "anything"]):
-            self.assertFalse(ensure_administrator(administrator=lambda: False, request=request))
+            self.assertTrue(relaunch_as_administrator(request=request))
         command = request.call_args.args[0]
         self.assertEqual(command.executable, str(self.frozen.resolve()))
         self.assertEqual(command.arguments, ("--clearspace-elevated",))
         self.assertEqual(command.directory, str(self.frozen.parent.resolve()))
 
-    def test_uac_cancel_returns_quiet_exit_without_retry(self):
+    def test_uac_cancel_keeps_the_current_app_without_retry(self):
         request = MagicMock(return_value=1223)
         with patch.object(elevation.sys, "executable", str(self.frozen)), \
                 patch.object(elevation.sys, "frozen", True, create=True):
-            self.assertFalse(ensure_administrator(administrator=lambda: False, request=request))
+            self.assertFalse(relaunch_as_administrator(request=request))
         request.assert_called_once()
-
-    def test_marker_prevents_an_elevation_prompt_loop(self):
-        request = MagicMock()
-        with patch.object(elevation.sys, "argv", ["clearspace", "--clearspace-elevated"]):
-            with self.assertRaisesRegex(ElevationError, "did not grant"):
-                ensure_administrator(administrator=lambda: False, request=request)
-        request.assert_not_called()
-
-    def test_elevated_child_with_admin_token_proceeds_even_with_marker(self):
-        request = MagicMock()
-        with patch.object(elevation.sys, "argv", ["clearspace", "--clearspace-elevated"]):
-            self.assertTrue(ensure_administrator(administrator=lambda: True, request=request))
-        request.assert_not_called()
 
     def test_missing_windowless_source_runtime_does_not_prompt_uac(self):
         self.pythonw.unlink()
@@ -93,29 +73,28 @@ class ElevationTests(unittest.TestCase):
         with patch.object(elevation.sys, "executable", str(self.python)), \
                 patch.object(elevation.sys, "frozen", False, create=True):
             with self.assertRaisesRegex(ElevationError, "runtime is missing"):
-                ensure_administrator(administrator=lambda: False, request=request)
+                relaunch_as_administrator(request=request)
         request.assert_not_called()
 
     def test_relative_runtime_path_is_rejected(self):
         request = MagicMock()
         with patch.object(elevation.sys, "executable", "python.exe"):
             with self.assertRaisesRegex(ElevationError, "locate"):
-                ensure_administrator(administrator=lambda: False, request=request)
+                relaunch_as_administrator(request=request)
         request.assert_not_called()
 
     def test_native_launch_error_is_bounded_and_preserves_error_code(self):
         with patch.object(elevation.sys, "executable", str(self.frozen)), \
                 patch.object(elevation.sys, "frozen", True, create=True):
             with self.assertRaisesRegex(ElevationError, "code 5") as caught:
-                ensure_administrator(administrator=lambda: False, request=lambda command: 5)
+                relaunch_as_administrator(request=lambda command: 5)
         self.assertNotIn(str(self.root), str(caught.exception))
 
     def test_native_load_failure_has_clear_message_without_raw_exception(self):
         with patch.object(elevation.sys, "executable", str(self.frozen)), \
                 patch.object(elevation.sys, "frozen", True, create=True):
             with self.assertRaisesRegex(ElevationError, "could not request") as caught:
-                ensure_administrator(administrator=lambda: False,
-                                     request=MagicMock(side_effect=OSError("private native detail")))
+                relaunch_as_administrator(request=MagicMock(side_effect=OSError("private native detail")))
         self.assertNotIn("private native detail", str(caught.exception))
 
     def native_apis(self, *, initialize=0, success=True, error=0):
@@ -178,43 +157,42 @@ class ElevationTests(unittest.TestCase):
         shell.ShellExecuteExW.assert_not_called()
         ole.CoUninitialize.assert_not_called()
 
-    def test_gui_relaunch_or_cancellation_exits_before_dpi_or_window(self):
-        with patch.object(gui, "ensure_administrator", return_value=False) as ensure, \
-                patch.object(gui, "_enable_per_monitor_dpi") as dpi, \
-                patch.object(gui, "CleanerService") as service, \
-                patch.object(gui, "AssetServer") as server:
-            self.assertEqual(gui.main(), 0)
-        ensure.assert_called_once_with()
-        dpi.assert_not_called()
-        service.assert_not_called()
-        server.assert_not_called()
-
-    def test_gui_permission_error_uses_existing_error_dialog_and_does_not_start_window(self):
-        with patch.object(gui, "ensure_administrator", side_effect=ElevationError("bounded test message")), \
-                patch.object(gui, "_fatal") as fatal, \
-                patch.object(gui, "_enable_per_monitor_dpi") as dpi, \
-                patch.object(gui, "CleanerService") as service:
-            self.assertEqual(gui.main(), 1)
-        fatal.assert_called_once_with("bounded test message")
-        dpi.assert_not_called()
-        service.assert_not_called()
-
-    def test_gui_already_elevated_preserves_dpi_setup_before_interface(self):
-        with patch.object(gui, "ensure_administrator", return_value=True) as ensure, \
+    def test_gui_opens_without_requesting_elevation(self):
+        with patch.object(elevation, "_request_elevation") as request, \
                 patch.object(gui, "_enable_per_monitor_dpi") as dpi, \
                 patch.object(gui, "ASSETS", self.root / "absent-assets"), \
                 patch.object(gui, "_fatal") as fatal:
             self.assertEqual(gui.main(), 1)
-        ensure.assert_called_once_with()
+        request.assert_not_called()
         dpi.assert_called_once_with()
         self.assertIn("interface is missing", fatal.call_args.args[0])
+
+    def test_restart_closes_the_window_only_after_a_launch(self):
+        service, window = MagicMock(), MagicMock()
+        api = gui.DesktopApi(service)
+        api.attach(window)
+        service.active.return_value = False
+        with patch.object(gui, "relaunch_as_administrator", return_value=False):
+            self.assertEqual(api.restart_as_administrator(), {"ok": True, "state": service.get_state.return_value})
+        window.destroy.assert_not_called()
+        with patch.object(gui, "relaunch_as_administrator", return_value=True):
+            self.assertTrue(api.restart_as_administrator()["ok"])
+        window.destroy.assert_called_once_with()
+
+    def test_restart_waits_for_running_work(self):
+        service = MagicMock()
+        service.active.return_value = True
+        api = gui.DesktopApi(service)
+        with patch.object(gui, "relaunch_as_administrator") as relaunch:
+            self.assertFalse(api.restart_as_administrator()["ok"])
+        relaunch.assert_not_called()
 
     def test_portable_self_check_bypasses_gui_and_elevation(self):
         entry = Path(__file__).resolve().parents[1] / "scripts" / "gui_entry.py"
         with patch.object(sys, "argv", ["clearspace.exe", "--self-check"]), \
                 patch("clearspace.diagnostics.verify_portable") as verify, \
                 patch.object(gui, "main") as main, \
-                patch.object(gui, "ensure_administrator") as ensure:
+                patch.object(elevation, "_request_elevation") as ensure:
             with self.assertRaises(SystemExit) as caught:
                 runpy.run_path(str(entry), run_name="__main__")
         self.assertEqual(caught.exception.code, 0)

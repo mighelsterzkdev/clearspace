@@ -1,3 +1,4 @@
+import type { Language } from './i18n'
 export type Theme = 'system' | 'dark' | 'light'
 export type Phase = 'idle' | 'scanning' | 'ready' | 'cleaning' | 'completed' | 'cancelled' | 'error'
 export interface Category {
@@ -17,7 +18,8 @@ export interface CleanupResult {
 export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
   progress: { checked: number; files: number; bytes: number; current: string | null; message?: string | null };
-  result: CleanupResult | null; error: string | null; theme?: Theme
+  result: CleanupResult | null; error: string | null; theme?: Theme; language?: Language
+  disk?: { drive: string; free: number; total: number } | null; administrator?: boolean
   maintenance?: { action_id: string; operation: 'analyze' | 'cleanup'; phase: 'running' | 'finishing'; elapsed_seconds: number } | null
 }
 export interface FileItem { name: string; path: string; bytes: number }
@@ -32,6 +34,8 @@ export interface CleanerApi {
   open_search_settings(): Promise<StateResponse>;
   get_files(scanId: string, categoryId: string, offset: number): Promise<FilesResponse>;
   set_theme(theme: Theme): Promise<StateResponse>;
+  set_language(language: Language): Promise<StateResponse>;
+  restart_as_administrator(): Promise<StateResponse>;
   window_action?(action: WindowAction): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 export type ResizeEdge = 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'

@@ -6,7 +6,7 @@ import type { Category, CleanerApi, CleanerState, FilesResponse, StateResponse, 
 
 function initial(): CleanerState {
   return {
-    version: '0.4.1', phase: 'idle', scan_id: null, scanned_at: null,
+    version: '0.5.0', phase: 'idle', scan_id: null, scanned_at: null,
     categories: [
       { id: 'recycle_bin', title: 'Recycle Bin', description: 'Deleted files and folders.', group: 'Windows', native_action: 'empty_recycle_bin', recommended: false, available: true, selected: false, reason: null, bytes: 0, files: 0, skipped: 0 },
       { id: 'user_temp', title: 'Temporary files', description: 'User temporary files.', group: 'Windows', recommended: true, available: true, selected: true, reason: null, bytes: 0, files: 0, skipped: 0 },
@@ -59,6 +59,8 @@ function bridge(extraCategories: Category[] = []) {
     }),
     open_search_settings: vi.fn(async () => snapshot()),
     set_theme: vi.fn(async (theme: 'system' | 'dark' | 'light') => { state = { ...state, theme }; return snapshot() }),
+    set_language: vi.fn(async (language: 'system' | 'pt' | 'en') => { state = { ...state, language }; return snapshot() }),
+    restart_as_administrator: vi.fn(async () => snapshot()),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
   } satisfies CleanerApi
   window.pywebview = { api }
@@ -470,8 +472,31 @@ describe('Windows cleanup actions', () => {
     await user.click(screen.getByRole('button', { name: 'Analyze' }))
     expect(await screen.findByText('Nothing to clean in the selected categories')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    // Analyzed categories with nothing to clean are grouped out of the way.
+    await user.click(screen.getByText('Nothing to clean (1)'))
     expect(within(screen.getByRole('checkbox', { name: 'Run dialog history' }).closest('li')!).getByText('Nothing to clean')).toBeVisible()
     expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('moves analyzed categories with nothing to clean into a collapsed group', async () => {
+    const user = userEvent.setup()
+    const { api, snapshot, update } = bridge()
+    await api.set_selection(['user_temp', 'recycle_bin'])
+    api.scan.mockImplementationOnce(async () => {
+      const current = snapshot()
+      if (!current.ok) throw new Error('unexpected bridge state')
+      update({ phase: 'ready', scan_id: 'partly-empty', categories: current.state.categories.map(category =>
+        category.id === 'user_temp' ? { ...category, files: 3, bytes: 2048 } : { ...category, files: 0, bytes: 0 }) })
+      return snapshot()
+    })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    const summary = await screen.findByText('Nothing to clean (1)')
+    expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).not.toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Temporary files' })).toBeVisible()
+    await user.click(summary)
+    expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).toBeVisible()
   })
 
   it('reports a failed native analysis as needing attention instead of an empty successful scan', async () => {
@@ -716,5 +741,47 @@ describe('file review', () => {
     await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
     expect(await screen.findByText('old-cache.tmp')).toBeVisible()
     expect(screen.queryByText('stale.tmp')).not.toBeInTheDocument()
+  })
+})
+
+describe('language, permission and disk space', () => {
+  it('switches the interface, including service text, to Portuguese', async () => {
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Change language' }))
+    await waitFor(() => expect(api.set_language).toHaveBeenCalledWith('pt'))
+    expect(await screen.findByRole('button', { name: 'Analisar' })).toBeVisible()
+    expect(screen.getByText('Limpe seu PC')).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Arquivos temporários' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Mudar idioma' })).toHaveTextContent('PT')
+    await user.click(screen.getByRole('button', { name: 'Mudar idioma' }))
+    await waitFor(() => expect(api.set_language).toHaveBeenLastCalledWith('en'))
+    expect(await screen.findByRole('button', { name: 'Analyze' })).toBeVisible()
+  })
+
+  it('offers an administrator restart only when selected system cleanup needs it', async () => {
+    const { api, update } = bridge()
+    update({ administrator: false })
+    render(<App />)
+    await connected()
+    expect(screen.queryByRole('button', { name: 'Restart as administrator' })).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('checkbox', { name: 'Windows diagnostic logs' }))
+    await user.click(await screen.findByRole('button', { name: 'Restart as administrator' }))
+    await waitFor(() => expect(api.restart_as_administrator).toHaveBeenCalledOnce())
+    update({ administrator: true })
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Restart as administrator' })).not.toBeInTheDocument())
+  })
+
+  it('shows the free space of the system drive', async () => {
+    const { update } = bridge()
+    update({ disk: { drive: 'C:', free: 512 * 1024 ** 3, total: 1024 * 1024 ** 3 } })
+    render(<App />)
+    await connected()
+    expect(screen.getByText('Disk C:')).toBeVisible()
+    expect(screen.getByText('512 GiB free of 1 TiB')).toBeVisible()
+    expect(screen.getByRole('meter', { name: 'Used space' })).toHaveAttribute('aria-valuenow', String(512 * 1024 ** 3))
   })
 })

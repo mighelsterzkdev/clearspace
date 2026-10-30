@@ -70,6 +70,13 @@
   .section-heading h2 { @apply text-base font-semibold; }
   .section-heading p { @apply mt-1 text-sm leading-6 text-muted-foreground; }
   .section-heading > button { @apply shrink-0; }
+  .disk-meter { @apply mb-6 space-y-2; }
+  .disk-meter > div:first-child { @apply flex items-baseline justify-between gap-4 text-sm; }
+  .disk-meter > div:first-child > span:first-child { @apply font-medium; }
+  .disk-meter > div:first-child > span:last-child { @apply tabular-nums text-muted-foreground; }
+  .disk-meter-track { @apply h-1.5 overflow-hidden rounded-full bg-secondary; }
+  .disk-meter-track > span { @apply block h-full rounded-full bg-foreground/70; transition: width .4s ease; }
+  .language-toggle { @apply text-xs font-semibold tracking-wide; }
   .category-toolbar { @apply sticky -top-4 z-10 -mx-1 mb-4 flex items-center justify-between gap-4 bg-background px-1 pb-2 pt-1; }
   .category-toolbar > span { @apply shrink-0 text-sm tabular-nums text-muted-foreground; }
   .selection-tools { @apply flex items-center gap-1; }
