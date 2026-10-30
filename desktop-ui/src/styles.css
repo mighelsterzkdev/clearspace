@@ -84,7 +84,10 @@
   .category-groups { @apply space-y-4; }
   .category-group-heading { @apply mb-2 text-sm font-medium text-muted-foreground; }
   .unavailable-categories { @apply mt-4; }
-  .unavailable-categories > summary { @apply w-fit cursor-pointer rounded py-2 text-sm text-muted-foreground; }
+  .unavailable-categories > summary { @apply flex w-full cursor-pointer list-none items-center gap-2 rounded-md border px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground; }
+  .unavailable-categories > summary::-webkit-details-marker { display: none; }
+  .summary-chevron { @apply size-4 shrink-0 transition-transform duration-200; }
+  .unavailable-categories[open] > .summary-chevron, .unavailable-categories[open] > summary > .summary-chevron { @apply rotate-90; }
   .unavailable-categories[open] > summary { @apply mb-2; }
   .unavailable-categories > summary:focus-visible { @apply outline-none ring-2 ring-ring; }
   .category-list { @apply overflow-hidden rounded-md border empty:hidden; }
@@ -167,7 +170,6 @@
 }
 
 @keyframes scanning { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
-@media (prefers-reduced-motion: reduce) { .indeterminate-track > span { animation: none; } .animate-spin { animation: none; } }
 @media (max-width: 680px) {
   .app-header, .app-footer, .action-bar { padding-left: 16px; padding-right: 16px; }
   .app-content { padding: 20px 16px; }
@@ -180,4 +182,23 @@
   .section-heading { align-items: flex-start; gap: 16px; }
   .action-bar { gap: 16px; }
   .action-bar > div { min-width: 0; }
+}
+
+/* Motion: small and quick. With reduced motion (Windows "Animation effects" off), movement
+   becomes a plain fade. Spinners and progress keep moving, because they show that work continues. */
+@keyframes enter { from { opacity: 0; transform: translateY(4px); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes dialog-in { from { opacity: 0; transform: translate(-50%, -50%) scale(.97); } }
+@keyframes dialog-out { to { opacity: 0; transform: translate(-50%, -50%) scale(.97); } }
+@keyframes pulse-track { 50% { opacity: .35; } }
+.dialog-overlay[data-state="open"] { animation: fade-in .15s ease-out; }
+.dialog-overlay[data-state="closed"] { animation: fade-out .12s ease-in; }
+.dialog-content[data-state="open"] { animation: dialog-in .18s cubic-bezier(.2, .8, .2, 1); }
+.dialog-content[data-state="closed"] { animation: dialog-out .12s ease-in; }
+.notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-meter { animation: enter .22s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-meter, .dialog-content[data-state="open"] { animation-name: fade-in; }
+  .dialog-content[data-state="closed"] { animation-name: fade-out; }
+  .indeterminate-track > span { width: 100%; animation: pulse-track 1.5s ease-in-out infinite; }
 }

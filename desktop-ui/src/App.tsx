@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, CircleAlert, Clock3, ExternalLink, HardDrive, LoaderCircle, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ExternalLink, HardDrive, LoaderCircle, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { CategoryRow } from './components/CategoryRow'
@@ -142,14 +142,14 @@ export default function App() {
         </div>
         {available.length === 0 ? <div className="category-empty" role="status"><p>{t(!connected ? 'Loading cleanup categories…' : 'No cleanup categories available')}</p></div> : null}
         {empty.length > 0 ? <details className="unavailable-categories">
-          <summary>{t('Nothing to clean ({count})', { count: empty.length })}</summary>
+          <summary><ChevronRight className="summary-chevron" aria-hidden="true" />{t('Nothing to clean ({count})', { count: empty.length })}</summary>
           <ul className="category-list" aria-label={t('Categories with nothing to clean')}>
             {empty.map(category => <CategoryRow key={category.id} category={category} disabled={disabled} analyzed={analyzed} detailsEnabled={false}
               onSelect={checked => select(category.id, checked)} onDetails={() => {}} />)}
           </ul>
         </details> : null}
         {unavailable.length > 0 ? <details className="unavailable-categories">
-          <summary>{t('Unavailable ({count})', { count: unavailable.length })}</summary>
+          <summary><ChevronRight className="summary-chevron" aria-hidden="true" />{t('Unavailable ({count})', { count: unavailable.length })}</summary>
           <ul className="category-list" aria-label={t('Unavailable cleanup categories')}>
             {unavailable.map(category => <CategoryRow key={category.id} category={category} disabled analyzed={false} detailsEnabled={false} onSelect={() => {}} onDetails={() => {}} />)}
           </ul>
