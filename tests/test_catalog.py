@@ -20,7 +20,7 @@ class CatalogTests(unittest.TestCase):
         self.addCleanup(self.sandbox.cleanup)
         self.directory = Path(self.sandbox.name)
         self.locations = {name: self.directory / name
-                          for name in ("local", "roaming", "low", "common", "windows")}
+                          for name in ("local", "roaming", "low", "common", "windows", "profile")}
         for path in self.locations.values():
             path.mkdir()
 
@@ -109,7 +109,7 @@ class CatalogTests(unittest.TestCase):
         for identifier in ("user_temp", "windows_temp", "crash_dumps", "error_reports"):
             self.assertTrue(categories[identifier].default_selected)
         for identifier in ("windows_cbs_logs", "windows_dism_logs", "thumbnail_cache",
-                           "directx_cache", "nvidia_cache", "amd_cache", "pip_cache", "npm_cache", "nuget_cache",
+                           "directx_cache", "nvidia_cache", "amd_cache", "pip_cache", "npm_cache", "pnpm_cache", "yarn_cache", "nuget_cache", "nuget_packages",
                            "system_memory_dump", "windows_update_logs", "windows_setup_logs", "steam_cache", "slack_cache", "recent_files"):
             self.assertFalse(categories[identifier].default_selected)
 
@@ -207,18 +207,28 @@ class CatalogTests(unittest.TestCase):
     def test_developer_caches_do_not_include_installed_packages_or_projects(self):
         pip_roots = {self.directory_at("local", f"pip/Cache/{leaf}")
                      for leaf in ("http", "http-v2", "wheels")}
-        npm = self.directory_at("local", "npm-cache/_cacache")
+        npm = {self.directory_at("local", f"npm-cache/{leaf}") for leaf in ("_cacache", "_npx", "_logs")}
+        pnpm = {self.directory_at("local", "pnpm-cache"), self.directory_at("local", "pnpm/store")}
+        yarn = self.directory_at("local", "Yarn/Cache")
         nuget = self.directory_at("local", "NuGet/v3-cache")
+        nuget_packages = self.directory_at("profile", ".nuget/packages")
         personal = [
             self.file_at("local", "Programs/Python/Python312/Lib/site-packages/package/__init__.py"),
             self.file_at("roaming", "Python/Python312/site-packages/package/__init__.py"),
             self.file_at("local", "npm/node_modules/tool/package.json"),
             self.file_at("local", "NuGet/packages/library/lib.dll"),
+            self.file_at("local", "npm-cache/_update-notifier-last-checked"),
+            self.file_at("local", "pnpm/pnpm.exe"),
+            self.file_at("profile", ".nuget/NuGet/NuGet.Config"),
+            self.file_at("profile", "source/repos/app/app.csproj"),
         ]
         categories = self.categories()
         self.assertEqual(set(categories["pip_cache"].roots), pip_roots)
-        self.assertEqual(categories["npm_cache"].roots, (npm,))
+        self.assertEqual(set(categories["npm_cache"].roots), npm)
+        self.assertEqual(set(categories["pnpm_cache"].roots), pnpm)
+        self.assertEqual(categories["yarn_cache"].roots, (yarn,))
         self.assertEqual(categories["nuget_cache"].roots, (nuget,))
+        self.assertEqual(categories["nuget_packages"].roots, (nuget_packages,))
         self.assertEqual(categories["pip_cache"].group, "Developer tools")
         self.assert_not_targeted(categories, personal)
 

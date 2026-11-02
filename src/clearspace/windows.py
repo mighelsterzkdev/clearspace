@@ -391,6 +391,11 @@ def local_low_app_data() -> Path:
     return _known_folder("A520A1A4-1780-4FF6-BD18-167343C5AF16")
 
 
+def user_profile() -> Path:
+    """Ask the Windows shell for the current user's profile folder."""
+    return _known_folder("5E6C858F-0E22-4760-9AFE-EA3317B67173")
+
+
 def common_app_data() -> Path:
     """Ask the Windows shell for the machine-wide ProgramData folder."""
     return _known_folder("62AB5D82-FDC1-4DC3-A9DD-070D1D495D97")

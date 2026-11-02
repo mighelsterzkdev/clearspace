@@ -31,8 +31,11 @@ All production categories have minimum age **0**. Existing file locks, permissio
 | Spotify | `Data` (streamed-song cache) and the `Browser` rendering-cache leaves, for the installer and Microsoft Store versions; never `Storage` (offline downloads) or `Users` |
 | Teams / WhatsApp | Classic Teams `Cache`, `Code Cache`, `GPUCache`; new Teams and WhatsApp WebView2 profiles under their package `LocalCache`: only those leaves, never `IndexedDB`, `Local Storage`, `Network` or `LocalState` |
 | pip | Default `http`, `http-v2`, `wheels` cache leaves |
-| npm | Default `npm-cache/_cacache`; never projects, global modules, or `_npx` installations |
-| NuGet | Default `NuGet/v3-cache` HTTP responses; never global installed packages |
+| npm | Default `npm-cache/_cacache`, `_npx` tool downloads and `_logs`; never projects or global modules |
+| pnpm | `pnpm-cache` metadata and the default `pnpm/store`; projects keep their linked files, the next install downloads again |
+| Yarn | Default `Yarn/Cache` archives; never projects |
+| NuGet | Default `NuGet/v3-cache` HTTP responses |
+| NuGet packages | `%USERPROFILE%\.nuget\packages`, restored again by the next build; never `NuGet.Config` or projects. Off by default, since offline builds need it |
 | Recent-file shortcuts | `ROAMING/Microsoft/Windows/Recent`, only root `*.lnk`/`*.url`; no Jump List database traversal or original target deletion |
 | Run / Explorer / RecentDocs histories | Selected history values only under the three fixed current-user Explorer history registry keys |
 | Windows component cleanup | DISM `/Online /Cleanup-Image /AnalyzeComponentStore`, then confirmed `/StartComponentCleanup /NoRestart`; never `/ResetBase` or manual component-store deletion |

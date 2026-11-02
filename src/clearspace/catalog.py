@@ -32,9 +32,10 @@ def discover_categories(locations=None):
         locations = {
             "local": windows.local_app_data(), "roaming": windows.roaming_app_data(),
             "low": windows.local_low_app_data(), "common": windows.common_app_data(),
-            "windows": windows.windows_directory(),
+            "windows": windows.windows_directory(), "profile": windows.user_profile(),
         }
     local, roaming, low, common, win = (Path(locations[key]) for key in ("local", "roaming", "low", "common", "windows"))
+    profile = Path(locations["profile"]) if "profile" in locations else None
     categories = []
 
     def add(identifier, title, description, paths, *, group="Windows", recommended=False,
@@ -154,8 +155,18 @@ def discover_categories(locations=None):
     add("pip_cache", "Python package cache", "Cached downloads and built wheels. Installed packages are kept.", [
         local / "pip/Cache" / leaf for leaf in ("http", "http-v2", "wheels")
     ], group="Developer tools", processes=("pip.exe", "pip3.exe"))
-    add("npm_cache", "npm download cache", "Downloaded package content. Projects and installed modules are kept.", [local / "npm-cache/_cacache"], group="Developer tools")
+    add("npm_cache", "npm download cache", "Downloaded package content, npx tools and logs. Projects and installed modules are kept.", [
+        local / "npm-cache" / leaf for leaf in ("_cacache", "_npx", "_logs")
+    ], group="Developer tools")
+    # pnpm projects link their files from the store, so installed node_modules keep working; the next install downloads again.
+    add("pnpm_cache", "pnpm cache", "Package metadata and the shared package store. Projects are kept; the next install downloads packages again.", [
+        local / "pnpm-cache", local / "pnpm/store",
+    ], group="Developer tools", processes=("pnpm.exe",))
+    add("yarn_cache", "Yarn cache", "Downloaded package archives. Projects and installed modules are kept.", [local / "Yarn/Cache"],
+        group="Developer tools", processes=("yarn.exe",))
     add("nuget_cache", "NuGet HTTP cache", "Downloaded HTTP responses. Installed packages are kept.", [local / "NuGet/v3-cache"], group="Developer tools", processes=("nuget.exe", "dotnet.exe", "devenv.exe", "MSBuild.exe"))
+    add("nuget_packages", "NuGet packages", ".NET packages downloaded for your projects. The next build downloads the ones it needs again.",
+        [profile / ".nuget/packages"] if profile else [], group="Developer tools", processes=("nuget.exe", "dotnet.exe", "devenv.exe", "MSBuild.exe"))
     add("recent_files", "Recent files", "Recent-file shortcuts only. Original files and pinned Jump List items are kept.",
         [roaming / "Microsoft/Windows/Recent"], group="History", patterns=("*.lnk", "*.url"), recursive=False)
     from .actions import categories as native_categories

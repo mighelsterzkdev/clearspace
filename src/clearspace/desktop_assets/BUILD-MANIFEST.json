@@ -26,7 +26,7 @@
     "src/format.ts": "ad7499e94dfaf162d8b068f9b25918a99f425e1d98a0fef500732e8b69b56030",
     "src/i18n.ts": "ce4c16edab2bca28b5d0c79e3fffe10d08f347f42d71d7009ea6b61ab1b60b63",
     "src/lib/utils.ts": "00708463d307471ed1a3ac36642e9c00a766730d7be61e2351f283a580017ea6",
-    "src/locales/pt.ts": "ef40917318b2767877cb2797b5981ba0e5bb6d42c569e6911e6dafde4d992869",
+    "src/locales/pt.ts": "ebc947e774d6f04528334e4f65c5eba79a6346aa1b84d82a087e77f5df67d357",
     "src/main.tsx": "10ac689b4eb57228d6be39425516819110d59de99ccaff9eba6ab68ae07abcc3",
     "src/styles.css": "58f083720f425d2aed58e84b03757e02e60e837141cf1367387e474575f67fd6",
     "src/test/App.test.tsx": "934bcec176e2ba45b1c59747d7b27b7a8205205f08fecfdde0b48c680c445731",
@@ -39,8 +39,8 @@
   },
   "outputs": {
     "THIRD-PARTY-NOTICES.txt": "6eb8d534c26591b77f3c80311a96c115d18bd1ed13d193f97e4c568eb5ed25b7",
-    "assets/index-BQwQCJXz.js": "96f0d8e1a61f36d075f049e53aebbfdbe0171cb17d8c378992c226a1396a6893",
+    "assets/index-DXLknxQF.js": "59108c5e3b8bc769beac90ae381c935af2f447959a6f66fdbeba96597b18f296",
     "assets/index-SZTQOX38.css": "34d023103fe6fa839c16b1b7bb987a952a2892bcb294ba149a29c2ac6f8e9c72",
-    "index.html": "9d5277677294a1b13ac7d129f2d65b48948f09b4d17b65c761ba2a8f9ac8f9c1"
+    "index.html": "c0e836ba755ee58db0624acd11cf788d37adc45b715adfbe52e6061c3f062a47"
   }
 }
