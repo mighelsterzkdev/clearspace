@@ -4,6 +4,10 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.7.3
+
+- New developer cleanup options: the pnpm cache and store, the Yarn cache, npx tool downloads and npm logs, and downloaded NuGet packages. They are off by default; the next install or build downloads what it needs again.
+
 ## Version 0.7.2
 
 - A downloaded update now installs when you close the app. Before, closing the app before **Restart to update** threw the download away, so the same update was offered again at every start.
