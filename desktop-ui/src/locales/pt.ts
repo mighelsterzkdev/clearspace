@@ -307,7 +307,7 @@ export const pt: Record<string, string> = {
   'Windows determines the removable data. Once started, this system cleanup must finish before Stop takes effect.': 'O Windows define os dados removíveis. Depois de começar, esta limpeza do sistema precisa terminar antes de Parar fazer efeito.',
   '{name} {version} is available.': '{name} {version} está disponível.',
   'Downloading {name} {version}…': 'Baixando {name} {version}…',
-  '{name} {version} is ready to install.': '{name} {version} está pronto para instalar.',
+  '{name} {version} installs when you close the app.': '{name} {version} será instalado quando você fechar o app.',
   'Finish the current work to install {name} {version}.': 'Termine o trabalho atual para instalar {name} {version}.',
   'Restart to update': 'Reiniciar e atualizar',
   'Release page': 'Página da versão',

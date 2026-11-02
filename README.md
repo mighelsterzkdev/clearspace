@@ -4,6 +4,11 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.7.2
+
+- A downloaded update now installs when you close the app. Before, closing the app before **Restart to update** threw the download away, so the same update was offered again at every start.
+- Installing waits longer for files that antivirus or closing windows still hold.
+
 ## Version 0.7.1
 
 - One spacing, height and type scale across the interface, shared with Media Toolkit: 40 px main actions, 36 px buttons, 32 px compact buttons and tabs, 8 px panel corners, 24 px between blocks.

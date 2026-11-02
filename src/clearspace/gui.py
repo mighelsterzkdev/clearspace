@@ -414,6 +414,7 @@ def main():
         storage.mkdir(parents=True, exist_ok=True)
         icon = Path(__file__).resolve().parents[2] / "assets" / "clearspace.ico"  # a packaged app uses its executable's icon
         webview.start(gui="edgechromium", debug=False, private_mode=True, storage_path=str(storage), icon=str(icon) if icon.is_file() else None)
+        updater.install_on_exit()
         return 0
     except Exception:
         _fatal("Clearspace could not start. Check that the complete app is extracted and Microsoft Edge WebView2 Runtime is installed.")
