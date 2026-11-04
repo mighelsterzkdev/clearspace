@@ -5,11 +5,11 @@ import type { Category } from '../types'
 import { t } from '../i18n'
 
 interface Props {
-  category: Category; disabled: boolean; analyzed: boolean; detailsEnabled: boolean;
+  category: Category; disabled: boolean; analyzed: boolean; detailsEnabled: boolean; share?: number;
   onSelect: (checked: boolean) => void; onDetails: () => void
 }
 
-export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSelect, onDetails }: Props) {
+export function CategoryRow({ category, disabled, analyzed, detailsEnabled, share = 0, onSelect, onDetails }: Props) {
   const recycleBin = isRecycleBin(category)
   const native = isNativeAction(category)
   const history = isHistoryAction(category)
@@ -39,6 +39,7 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, onSe
       <div className="category-metrics">
         <span>{size}</span>
         <span>{detail}</span>
+        {scanned && share > 0 && !history ? <i className="category-share" aria-hidden="true"><b style={{ width: `${Math.max(4, share * 100)}%` }} /></i> : null}
       </div>
       {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon-sm" aria-label={t('View files for {title}', { title: t(category.title) })} title={t('View files')}
         disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>}

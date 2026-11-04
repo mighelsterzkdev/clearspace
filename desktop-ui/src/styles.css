@@ -75,12 +75,27 @@
   .section-heading h2 { @apply text-base font-semibold; }
   .section-heading p { @apply mt-1 text-sm text-muted-foreground; }
   .section-heading > button { @apply shrink-0; }
-  .disk-meter { @apply mb-6 space-y-2; }
-  .disk-meter > div:first-child { @apply flex items-baseline justify-between gap-4 text-sm; }
-  .disk-meter > div:first-child > span:first-child { @apply font-medium; }
-  .disk-meter > div:first-child > span:last-child { @apply tabular-nums text-muted-foreground; }
-  .disk-meter-track { @apply h-1.5 overflow-hidden rounded-full bg-secondary; }
-  .disk-meter-track > span { @apply block h-full rounded-full bg-foreground/70; transition: width .4s ease; }
+  /* Drive card: used space, the part the analysis can remove, and free space on one bar. */
+  .disk-overview { @apply mb-6 rounded-lg border bg-muted/20 p-4; }
+  .disk-overview-head { @apply flex items-center gap-3; }
+  .disk-overview-icon { @apply flex size-9 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground [&_svg]:size-4; }
+  .disk-overview-head > div:nth-child(2) { @apply min-w-0 flex-1; }
+  .disk-overview-head > div:nth-child(2) > span { @apply block text-sm; }
+  .disk-overview-head > div:nth-child(2) > span:first-child { @apply font-medium; }
+  .disk-overview-head > div:nth-child(2) > span:last-child { @apply mt-0.5 tabular-nums text-muted-foreground; }
+  .disk-overview-gain { @apply shrink-0 text-right; }
+  .disk-overview-gain > span { @apply block text-xs text-muted-foreground; }
+  .disk-overview-gain > strong { @apply block text-xl font-semibold tabular-nums tracking-tight text-success; }
+  .disk-overview-track { @apply mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full bg-secondary; }
+  .disk-overview-track > span { @apply block h-full; transition: width .4s ease; }
+  .disk-overview-track > .disk-removable { @apply min-w-1.5; }
+  .disk-used { @apply bg-foreground/70; }
+  .disk-removable { @apply bg-success; }
+  .disk-free { @apply bg-secondary; }
+  .disk-legend { @apply mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground; }
+  .disk-legend > li { @apply flex items-center gap-1.5; }
+  .disk-legend i { @apply size-2 rounded-full; }
+  .disk-legend .disk-free { @apply ring-1 ring-inset ring-input; }
   .language-toggle { @apply text-xs font-semibold tracking-wide; }
   .category-toolbar { @apply sticky -top-6 z-10 -mx-1 mb-3 flex items-center justify-between gap-4 bg-background px-1 py-2; }
   .category-toolbar > span { @apply shrink-0 text-sm tabular-nums text-muted-foreground; }
@@ -108,7 +123,10 @@
   .category-preview-space { @apply size-8 shrink-0; }
   .category-metrics { @apply min-w-28 text-right tabular-nums; }
   .category-metrics > span:first-child { @apply block text-sm font-medium; }
-  .category-metrics > span:last-child { @apply mt-0.5 block text-xs text-muted-foreground; }
+  .category-metrics > span:nth-child(2) { @apply mt-0.5 block text-xs text-muted-foreground; }
+  /* Size compared with the largest category of the analysis. */
+  .category-share { @apply ml-auto mt-1.5 block h-1 w-16 overflow-hidden rounded-full bg-secondary; }
+  .category-share > b { @apply block h-full rounded-full bg-foreground/60; transition: width .4s ease; }
   .category-unavailable .category-title, .category-unavailable .category-icon { @apply text-muted-foreground; }
   .category-unavailable .category-copy { @apply cursor-default; }
   .category-checkbox { @apply relative flex size-5 shrink-0 items-center justify-center; }
@@ -123,6 +141,15 @@
   .notice > span { @apply min-w-0 flex-1; }
   .notice-error { @apply border-destructive/50 text-danger; }
   .notice > .update-percent { @apply flex-none text-muted-foreground; }
+  .notice > .update-icon { @apply flex size-9 flex-none items-center justify-center rounded-md bg-secondary text-muted-foreground [&_svg]:size-4; }
+  .update-icon-ready { @apply text-success; }
+  .notice-error > .update-icon { @apply bg-destructive/15 text-danger; }
+  .update-copy { @apply min-w-0 flex-1; }
+  .update-copy > span { @apply block; }
+  .update-copy > span:first-child { @apply font-medium; }
+  .update-copy > span:nth-child(2):not(.update-progress) { @apply mt-0.5 text-muted-foreground; }
+  .update-progress { @apply mt-2 h-1 overflow-hidden rounded-full bg-secondary; }
+  .update-progress > span { @apply block h-full rounded-full bg-primary transition-[width] duration-300; }
   .operation-progress { @apply mb-6 space-y-3; }
   .operation-progress > div:first-child { @apply flex items-center gap-2 text-sm text-muted-foreground; }
   .operation-progress > div:first-child > span:last-child { @apply ml-auto tabular-nums; }
@@ -244,9 +271,9 @@
 .dialog-overlay[data-state="closed"] { animation: fade-out .12s ease-in; }
 .dialog-content[data-state="open"] { animation: dialog-in .18s cubic-bezier(.2, .8, .2, 1); }
 .dialog-content[data-state="closed"] { animation: dialog-out .12s ease-in; }
-.notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-meter { animation: enter .22s ease-out both; }
+.notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-overview { animation: enter .22s ease-out both; }
 @media (prefers-reduced-motion: reduce) {
-  .notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-meter, .dialog-content[data-state="open"] { animation-name: fade-in; }
+  .notice, .operation-progress, .empty-result, .cleanup-result, .analysis-message, .unavailable-categories[open] > .category-list, .disk-overview, .dialog-content[data-state="open"] { animation-name: fade-in; }
   .dialog-content[data-state="closed"] { animation-name: fade-out; }
   .indeterminate-track > span { width: 100%; animation: pulse-track 1.5s ease-in-out infinite; }
 }

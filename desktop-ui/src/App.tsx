@@ -10,6 +10,7 @@ import { ToolsPanel, type ToolActions } from './components/ToolsPanel'
 import { WindowControls, dragFromHeader, maximizeFromHeader } from './components/TitleBar'
 import { CategoryToolbar } from './components/CategoryToolbar'
 import { CleanupResult } from './components/CleanupResult'
+import { DiskOverview } from './components/DiskOverview'
 import { FilesDialog, type FileSelection } from './components/FilesDialog'
 import { countActions, countFiles, countItems, formatBytes, isHistoryAction, isNativeAction, isRecycleBin } from './format'
 import { useCleaner } from './use-cleaner'
@@ -45,6 +46,8 @@ export default function App() {
     && !category.analysis_error && !category.analysis_pending
   const listed = available.filter(category => !isEmpty(category))
   const empty = available.filter(isEmpty)
+  // Each row's bar compares its size with the largest category found by the analysis.
+  const largest = Math.max(0, ...listed.filter(category => state.scan_id !== null && category.selected).map(category => category.bytes))
   const groups = [...new Set(listed.map(category => category.group || 'Windows'))]
   const systemCategory = (category: Category) => category.group === 'System maintenance' || category.group === 'Disk Cleanup' || category.id.startsWith('windows_')
     || ['crash_dumps', 'system_memory_dump', 'error_reports'].includes(category.id) || /administrator/i.test(category.reason ?? '')
@@ -134,10 +137,7 @@ export default function App() {
           {busy ? <Button variant="outline" disabled><LoaderCircle className="animate-spin" />{t(state.phase === 'scanning' ? 'Analyzing…' : 'Cleaning…')}</Button>
             : analyzed || result ? <Button variant="outline" disabled={disabled || selected.length === 0} onClick={analyze}><Search />{t('Analyze again')}</Button> : null}
         </div>
-        {disk && disk.total > 0 ? <div className="disk-meter" aria-label={t('Disk space')}>
-          <div><span>{t('Disk {drive}', { drive: disk.drive })}</span><span>{t('{free} free of {total}', { free: formatBytes(disk.free), total: formatBytes(disk.total) })}</span></div>
-          <div className="disk-meter-track" role="meter" aria-valuemin={0} aria-valuemax={disk.total} aria-valuenow={disk.total - disk.free} aria-label={t('Used space')}><span style={{ width: `${Math.min(100, Math.max(0, (1 - disk.free / disk.total) * 100))}%` }} /></div>
-        </div> : null}
+        {disk && disk.total > 0 ? <DiskOverview disk={disk} reclaimable={ready ? selectedBytes : 0} /> : null}
         {result ? <CleanupResult result={result} /> : null}
         {busy ? <div className="operation-progress" role="status" aria-live="polite"><div><LoaderCircle className="size-4 animate-spin" aria-hidden="true" /><span>{state.progress.message ? t(state.progress.message) : `${t(state.phase === 'scanning' ? 'Analyzing' : 'Cleaning')}${currentCategory ? ` · ${t(currentCategory)}` : '…'}`}</span><span>{checked}</span></div><div className="indeterminate-track" aria-hidden="true"><span /></div></div> : null}
         {ready && selectedFiles === 0 && selectedActions === 0 ? <div className={`empty-result${analysisError || analysisPending ? ' empty-result-warning' : ''}`} role="status">
@@ -152,7 +152,7 @@ export default function App() {
             <h3 className="category-group-heading">{t(group)}</h3>
             <ul className="category-list" aria-label={t('{group} categories', { group: t(group) })}>
               {listed.filter(category => (category.group || 'Windows') === group).map(category => <CategoryRow key={category.id} category={category} disabled={disabled} analyzed={analyzed}
-                detailsEnabled={connected && analyzed && !busy && pending === null}
+                detailsEnabled={connected && analyzed && !busy && pending === null} share={largest > 0 ? category.bytes / largest : 0}
                 onSelect={checked => select(category.id, checked)} onDetails={() => { if (state.scan_id) setDetails({ scanId: state.scan_id, categoryId: category.id, title: category.title }) }} />)}
             </ul>
           </section>)}

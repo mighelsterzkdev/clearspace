@@ -4,6 +4,12 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.7.4
+
+- The disk card shows used and free space, and after an analysis it marks how much the selected categories can free.
+- Each analyzed category has a small bar that compares its size with the largest one.
+- The update notice is a card with a short explanation and, while downloading, a progress bar.
+
 ## Version 0.7.3
 
 - New developer cleanup options: the pnpm cache and store, the Yarn cache, npx tool downloads and npm logs, and downloaded NuGet packages. They are off by default; the next install or build downloads what it needs again.
