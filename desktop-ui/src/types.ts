@@ -5,7 +5,7 @@ export interface Category {
   id: string; title: string; description: string; selected: boolean; available: boolean;
   reason: string | null; files: number; bytes: number; skipped: number;
   group?: string; recommended?: boolean; native_action?: string | null;
-  actions?: number; size_known?: boolean; analysis_error?: boolean; analysis_pending?: boolean
+  actions?: number; size_known?: boolean; analysis_error?: boolean; analysis_pending?: boolean; excluded_files?: number
 }
 export interface CleanupActionResult {
   category_id: string; title: string; status: 'completed' | 'failed' | 'skipped' | 'deferred';
@@ -14,6 +14,7 @@ export interface CleanupActionResult {
 export interface CleanupResult {
   removed: number; freed_bytes: number; skipped: number; failed: number; cancelled: boolean;
   actions?: CleanupActionResult[]; actions_completed?: number; actions_failed?: number; actions_deferred?: number
+  excluded?: number; issues?: { path: string; reason: string }[]
 }
 export interface CleanerState {
   version: string; phase: Phase; categories: Category[]; scan_id: string | null; scanned_at: string | null;
@@ -40,7 +41,7 @@ export interface ToolsState {
     items: { name: string; media: string; bus: string; health: 'healthy' | 'warning' | 'unhealthy' | 'unknown'; size: number | null; temperature: number | null; wear: number | null }[] }
   startup: { status: 'idle' | 'done' | 'failed'; error: string | null; items: { id: string; name: string; program: string; scope: 'user' | 'machine'; enabled: boolean; fixed?: boolean }[] }
 }
-export interface FileItem { name: string; path: string; bytes: number }
+export interface FileItem { id: string; name: string; path: string; bytes: number; included: boolean }
 export type StateResponse = { ok: true; state: CleanerState } | { ok: false; error: string }
 export type FilesResponse = { ok: true; items: FileItem[]; total: number; next_offset: number | null } | { ok: false; error: string }
 export interface CleanerApi {
@@ -51,6 +52,7 @@ export interface CleanerApi {
   clean(scanId: string, ids: string[]): Promise<StateResponse>;
   open_search_settings(): Promise<StateResponse>;
   get_files(scanId: string, categoryId: string, offset: number): Promise<FilesResponse>;
+  set_file_included(scanId: string, entryId: string, included: boolean): Promise<StateResponse>;
   set_theme(theme: Theme): Promise<StateResponse>;
   set_language(language: Language): Promise<StateResponse>;
   restart_as_administrator(): Promise<StateResponse>;

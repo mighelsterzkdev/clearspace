@@ -185,6 +185,33 @@ class CleanerTests(unittest.TestCase):
         self.assertTrue(unselected.exists())
         self.assertTrue(added_after_scan.exists())
 
+    def test_file_exclusions_keep_only_snapshot_entries_and_revalidate_the_rest(self):
+        kept = self.file("keep.tmp", b"keep")
+        changed = self.file("changed.tmp", b"before")
+        removed = self.file("remove.tmp", b"remove")
+        plan = self.cleaner.scan(["test"])
+        kept_id = next(entry.id for entry in plan.entries if entry.path == kept)
+        changed.write_bytes(b"changed")
+        result = self.cleaner.clean(plan, ["test"], excluded_entry_ids=[kept_id])
+        self.assertTrue(kept.exists())
+        self.assertTrue(changed.exists())
+        self.assertFalse(removed.exists())
+        self.assertEqual((result.deleted_files, result.freed_bytes, result.skipped_files), (1, 6, 1))
+        with self.assertRaises(ValueError):
+            self.cleaner.clean(plan, ["test"], excluded_entry_ids=[kept_id])
+
+    def test_forged_file_exclusions_do_not_consume_or_expand_plan(self):
+        path = self.file()
+        plan = self.cleaner.scan(["test"])
+        valid_id = plan.entries[0].id
+        for excluded in (["not-issued"], [str(path)], [valid_id, valid_id], [None], valid_id, None, ["empty_recycle_bin"]):
+            with self.subTest(excluded=excluded), self.assertRaises(ValueError):
+                self.cleaner.clean(plan, ["test"], excluded_entry_ids=excluded)
+            self.assertTrue(path.exists())
+        result = self.cleaner.clean(plan, ["test"], excluded_entry_ids=[valid_id])
+        self.assertEqual(result.deleted_files, 0)
+        self.assertTrue(path.exists())
+
     def test_changed_file_is_kept_even_if_modified_time_is_restored(self):
         path = self.file(content=b"before")
         plan = self.cleaner.scan(["test"])

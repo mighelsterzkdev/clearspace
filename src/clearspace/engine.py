@@ -466,7 +466,8 @@ class Cleaner:
         finally:
             self._operation.release()
 
-    def clean(self, plan: Plan, category_ids: Iterable[str], cancel=None, progress=None) -> Result:
+    def clean(self, plan: Plan, category_ids: Iterable[str], cancel=None, progress=None,
+              excluded_entry_ids: Iterable[str] = ()) -> Result:
         categories = self._selection(category_ids)
         if not self._operation.acquire(blocking=False):
             raise RuntimeError("Another cleanup operation is already running.")
@@ -481,10 +482,23 @@ class Cleaner:
             scanned_ids = {item.category_id for item in plan.category_stats}
             if any(category.id not in scanned_ids for category in categories):
                 raise ValueError("Analyze the selected categories before cleaning.")
+            # Only opaque IDs issued by this exact plan can narrow file deletion.
+            # Native actions (including the Recycle Bin) never have file IDs.
+            if isinstance(excluded_entry_ids, (str, bytes)):
+                raise ValueError("Choose files from the current analysis.")
+            try:
+                excluded = tuple(excluded_entry_ids)
+            except TypeError as error:
+                raise ValueError("Choose files from the current analysis.") from error
+            known_entries = {entry.id for entry in plan.entries}
+            if (len(excluded) > len(known_entries) or any(not isinstance(value, str) for value in excluded)
+                    or len(set(excluded)) != len(excluded) or not set(excluded).issubset(known_entries)):
+                raise ValueError("Choose files from the current analysis.")
+            excluded = set(excluded)
             # Consume before starting. A second click cannot replay this snapshot.
             self._latest_plan = None
             selected = {category.id: category for category in categories}
-            entries = tuple(entry for entry in plan.entries if entry.category_id in selected)
+            entries = tuple(entry for entry in plan.entries if entry.category_id in selected and entry.id not in excluded)
             bin_snapshot = plan.recycle_bin if "recycle_bin" in selected else None
             native_plans = tuple(item for item in plan.native_actions if item.category_id in selected)
             total_items = len(entries) + (bin_snapshot.items if bin_snapshot else 0)

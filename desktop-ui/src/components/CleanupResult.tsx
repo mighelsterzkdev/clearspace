@@ -26,6 +26,7 @@ export function CleanupResult({ result }: { result: Result }) {
         {hasRemoved && completed > 0 ? ` · ${t('{actions} completed', { actions: countActions(completed) })}` : ''}
         {result.skipped > 0 ? ` · ${t('{count} skipped', { count: result.skipped.toLocaleString(locale()) })}` : ''}
         {result.failed > 0 ? ` · ${t('{count} could not be removed', { count: result.failed.toLocaleString(locale()) })}` : ''}
+        {result.excluded ? ` · ${t('{count} kept by you', { count: result.excluded.toLocaleString(locale()) })}` : ''}
         {failed > 0 && (hasRemoved || completed > 0 || deferred > 0) ? ` · ${t('{actions} failed', { actions: countActions(failed) })}` : ''}
         {deferred > 0 && (hasRemoved || completed > 0) ? ` · ${t('{actions} pending', { actions: countActions(deferred) })}` : ''}
       </p>
@@ -43,6 +44,12 @@ export function CleanupResult({ result }: { result: Result }) {
           </li>
         })}
       </ul> : null}
+      {result.issues?.length ? <details className="cleanup-issues">
+        <summary>{t('View skipped or failed files ({count})', { count: result.issues.length })}</summary>
+        <p>{t('Recorded reasons are shown below. Files you unchecked were kept separately.')}</p>
+        {result.issues.length >= 200 ? <p>{t('Only the first 200 recorded issues are shown.')}</p> : null}
+        <ul>{result.issues.map((issue, index) => <li key={`${issue.path}-${index}`}><span>{issue.path}</span><p>{t(issue.reason)}</p></li>)}</ul>
+      </details> : null}
     </div>
   </section>
 }

@@ -40,30 +40,35 @@ function nativeCategory(id: string, title: string, sizeKnown = true): Category {
 
 function bridge(extraCategories: Category[] = []) {
   let state = initial()
+  let scanned = new Set<string>()
   state.categories.push(...extraCategories)
   state.tools = toolsState()
   const tools = () => state.tools!
   const snapshot = (): StateResponse => ({ ok: true, state: structuredClone(state) })
   const files = [
-    { name: 'old-cache.tmp', path: 'C:\\Sandbox\\Temp\\old-cache.tmp', bytes: 1024 },
-    { name: 'installer.tmp', path: 'C:\\Sandbox\\Temp\\installer.tmp', bytes: 512 },
-    { name: 'session.tmp', path: 'C:\\Sandbox\\Temp\\session.tmp', bytes: 512 },
+    { id: 'file-1', included: true, name: 'old-cache.tmp', path: 'C:\\Sandbox\\Temp\\old-cache.tmp', bytes: 1024 },
+    { id: 'file-2', included: true, name: 'installer.tmp', path: 'C:\\Sandbox\\Temp\\installer.tmp', bytes: 512 },
+    { id: 'file-3', included: true, name: 'session.tmp', path: 'C:\\Sandbox\\Temp\\session.tmp', bytes: 512 },
   ]
   const api = {
     get_state: vi.fn(async () => snapshot()),
     set_selection: vi.fn(async (ids: string[]) => {
-      state = { ...state, phase: 'idle', scan_id: null, result: null, categories: state.categories.map(category => ({ ...category, selected: ids.includes(category.id), bytes: 0, files: 0, actions: 0 })) }
+      const reusable = scanned.size > 0 && ids.every(id => scanned.has(id))
+      state = { ...state, phase: reusable ? 'ready' : 'idle', scan_id: reusable ? 'scan-1' : null, result: null, categories: state.categories.map(category => ({ ...category, selected: ids.includes(category.id) })) }
       return snapshot()
     }),
     scan: vi.fn(async () => {
+      scanned = new Set(state.categories.filter(category => category.selected).map(category => category.id))
+      files.forEach(file => { file.included = true })
       state = { ...state, phase: 'ready', scan_id: 'scan-1', scanned_at: '2026-10-22T12:00:00Z', categories: state.categories.map(category => {
         const native = Boolean(category.native_action) && category.native_action !== 'empty_recycle_bin'
-        return { ...category, files: category.selected && !native ? 3 : 0, bytes: category.selected && !native ? 2048 : 0, actions: category.selected && native ? 1 : 0 }
+        return { ...category, files: category.selected && !native ? 3 : 0, bytes: category.selected && !native ? 2048 : 0, excluded_files: 0, actions: category.selected && native ? 1 : 0 }
       }) }
       return snapshot()
     }),
     cancel: vi.fn(async () => { state = { ...state, phase: 'cancelled', scan_id: null }; return snapshot() }),
     clean: vi.fn(async (_scanId: string, _ids: string[]) => {
+      scanned.clear()
       const native = state.categories.filter(category => category.selected && category.native_action && category.native_action !== 'empty_recycle_bin')
       const filesSelected = state.categories.some(category => category.selected && category.files > 0)
       state = { ...state, phase: 'completed', scan_id: null, result: { removed: filesSelected ? 2 : 0, freed_bytes: filesSelected ? 1536 : 0,
@@ -106,6 +111,14 @@ function bridge(extraCategories: Category[] = []) {
     stop_updates: vi.fn(async () => snapshot()),
     repair_windows: vi.fn(async () => snapshot()),
     get_files: vi.fn(async (_scanId: string, _categoryId: string, offset: number): Promise<FilesResponse> => ({ ok: true, items: files.slice(offset, offset + 2), total: files.length, next_offset: offset === 0 ? 2 : null })),
+    set_file_included: vi.fn(async (_scanId: string, entryId: string, included: boolean) => {
+      const file = files.find(item => item.id === entryId)!
+      file.included = included
+      state = { ...state, categories: state.categories.map(category => category.id === 'user_temp' ? { ...category,
+        files: files.filter(item => item.included).length, bytes: files.filter(item => item.included).reduce((sum, item) => sum + item.bytes, 0),
+        excluded_files: files.filter(item => !item.included).length } : category) }
+      return snapshot()
+    }),
   } satisfies CleanerApi
   window.pywebview = { api }
   return { api, snapshot, update: (next: Partial<CleanerState>) => { state = { ...state, ...next } } }
@@ -352,6 +365,20 @@ describe('cleanup flow', () => {
     expect(screen.queryByRole('button', { name: 'Clean selected' })).not.toBeInTheDocument()
   })
 
+  it('reveals recorded paths and reasons for skipped files', async () => {
+    const user = userEvent.setup()
+    const { update } = bridge()
+    update({ phase: 'completed', result: { removed: 1, freed_bytes: 1024, skipped: 1, failed: 0, cancelled: false,
+      excluded: 2, issues: [{ path: 'C:\\Sandbox\\locked.tmp', reason: 'File is in use, unavailable or no longer accessible; kept.' }] } })
+    render(<App />)
+    const summary = await screen.findByText('View skipped or failed files (1)')
+    expect(screen.getByText('C:\\Sandbox\\locked.tmp')).not.toBeVisible()
+    await user.click(summary)
+    expect(screen.getByText('C:\\Sandbox\\locked.tmp')).toBeVisible()
+    expect(screen.getByText('File is in use, unavailable or no longer accessible; kept.')).toBeVisible()
+    expect(screen.getByText(/2 kept by you/)).toBeVisible()
+  })
+
   it('shows readable action errors and allows another analysis', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
@@ -394,12 +421,48 @@ describe('cleanup flow', () => {
 })
 
 describe('simple category selection', () => {
-  it('shows available categories together without filter controls', async () => {
+  it('filters without changing selection and sorts largest categories across groups', async () => {
+    const user = userEvent.setup()
+    const { api, update, snapshot } = bridge()
+    render(<App />)
+    await connected()
+    await user.type(screen.getByRole('searchbox', { name: 'Search categories' }), 'Chrome')
+    expect(screen.getByRole('checkbox', { name: 'Chrome cache' })).toBeVisible()
+    expect(screen.queryByRole('checkbox', { name: 'Temporary files' })).not.toBeInTheDocument()
+    expect(api.set_selection).not.toHaveBeenCalled()
+    await user.clear(screen.getByRole('searchbox', { name: 'Search categories' }))
+    const current = snapshot()
+    if (!current.ok) throw new Error('Missing fixture state')
+    act(() => update({ phase: 'ready', scan_id: 'scan-1', categories: current.state.categories.map(category => ({ ...category,
+      selected: true, files: 1, bytes: category.id === 'chrome_cache' ? 9999 : category.id === 'user_temp' ? 4000 : 10 })) }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort categories' }), 'size')
+    const categories = await screen.findByRole('list', { name: 'Largest first categories' })
+    await waitFor(() => {
+      expect(within(categories).getAllByRole('checkbox')[0]).toHaveAccessibleName('Chrome cache')
+      expect(within(categories).getAllByRole('checkbox')[1]).toHaveAccessibleName('Temporary files')
+    })
+  })
+
+  it('preserves analysis when deselecting an already scanned category', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('checkbox', { name: 'Chrome cache' }))
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Chrome cache' }))
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled()
+    await user.click(screen.getByRole('checkbox', { name: 'Chrome cache' }))
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeEnabled()
+    expect(api.scan).toHaveBeenCalledOnce()
+  })
+
+  it('shows search and sorting alongside category selection', async () => {
     bridge()
     render(<App />)
     await connected()
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Sort categories' })).toHaveValue('group')
+    expect(screen.getByRole('searchbox', { name: 'Search categories' })).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Select all' })).toBeEnabled()
     expect(screen.getByRole('checkbox', { name: 'Recycle Bin' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Chrome cache' })).toBeVisible()
@@ -828,6 +891,67 @@ describe('Windows Search settings shortcut', () => {
 })
 
 describe('file review', () => {
+  it('keeps the checkbox unchanged and reports a failed selection inside the dialog', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    api.set_file_included.mockResolvedValueOnce({ ok: false, error: 'Choose files from the current analysis.' })
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
+    const checkbox = await screen.findByRole('checkbox', { name: 'Delete old-cache.tmp' })
+    await user.click(checkbox)
+    const dialog = screen.getByRole('dialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not update the file selection. Try again.')
+    expect(checkbox).toBeChecked()
+    expect(api.clean).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unchecked file, updates the confirmation, and allows restoring it', async () => {
+    const user = userEvent.setup()
+    const { api } = bridge()
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
+    const checkbox = await screen.findByRole('checkbox', { name: 'Delete old-cache.tmp' })
+    await user.click(checkbox)
+    await waitFor(() => expect(checkbox).not.toBeChecked())
+    expect(api.set_file_included).toHaveBeenCalledWith('scan-1', 'file-1', false)
+    expect(api.clean).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('dialog')).getByText('Close', { selector: 'button' }))
+    await user.click(screen.getByRole('button', { name: 'Clean selected' }))
+    const confirmation = screen.getByRole('dialog', { name: 'Remove 1 KiB?' })
+    expect(within(confirmation).getByText('2 files from the selected categories will be permanently deleted.')).toBeVisible()
+    await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
+    const restored = await screen.findByRole('checkbox', { name: 'Delete old-cache.tmp' })
+    expect(restored).not.toBeChecked()
+    await user.click(restored)
+    await waitFor(() => expect(restored).toBeChecked())
+    expect(api.set_file_included).toHaveBeenLastCalledWith('scan-1', 'file-1', true)
+    expect(api.scan).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the preview accessible after every file has been unchecked', async () => {
+    const user = userEvent.setup()
+    bridge()
+    render(<App />)
+    await connected()
+    await user.click(screen.getByRole('button', { name: 'Analyze' }))
+    await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
+    await screen.findByRole('checkbox', { name: 'Delete old-cache.tmp' })
+    await user.click(screen.getByRole('button', { name: 'Load more' }))
+    for (const name of ['old-cache.tmp', 'installer.tmp', 'session.tmp']) {
+      const checkbox = screen.getByRole('checkbox', { name: `Delete ${name}` })
+      await user.click(checkbox)
+      await waitFor(() => expect(checkbox).not.toBeChecked())
+    }
+    await user.click(within(screen.getByRole('dialog')).getByText('Close', { selector: 'button' }))
+    expect(screen.getByRole('button', { name: 'Clean selected' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'View files for Temporary files' })).toBeEnabled()
+  })
+
   it('loads a scanned category and paginates without triggering deletion', async () => {
     const user = userEvent.setup()
     const { api } = bridge()
@@ -856,7 +980,7 @@ describe('file review', () => {
     await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))
     expect(await screen.findByText('Loading files…')).toBeVisible()
     await user.keyboard('{Escape}')
-    await act(async () => { resolveFiles!({ ok: true, items: [{ name: 'stale.tmp', path: 'C:\\Sandbox\\stale.tmp', bytes: 10 }], total: 1, next_offset: null }) })
+    await act(async () => { resolveFiles!({ ok: true, items: [{ id: 'stale', included: true, name: 'stale.tmp', path: 'C:\\Sandbox\\stale.tmp', bytes: 10 }], total: 1, next_offset: null }) })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByText('stale.tmp')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'View files for Temporary files' }))

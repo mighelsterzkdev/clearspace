@@ -22,6 +22,7 @@ class ControlledCleaner:
             self.release.set()
         self.truncated = truncated
         self.clean_calls = []
+        self.excluded_calls = []
 
     def scan(self, ids, cancel, progress):
         self.started.set()
@@ -29,14 +30,16 @@ class ControlledCleaner:
             pass
         progress({"phase": "scanning", "visited_files": 2, "found_files": 1, "found_bytes": 123, "category_id": ids[0]})
         return SimpleNamespace(
-            id="scan-token", created_at=time.time(), cancelled=cancel.is_set(), truncated=self.truncated,
-            entries=tuple(SimpleNamespace(category_id=ids[0], path=Path(f"example-{index}.tmp"), size=123) for index in range(105)),
+            id="scan-token", created_at=time.time(), expires_at=time.time() + 1800, cancelled=cancel.is_set(), truncated=self.truncated,
+            entries=tuple(SimpleNamespace(id=f"entry-{index}", category_id=ids[0], path=Path(f"example-{index}.tmp"), size=123) for index in range(105)),
             category_stats=tuple(SimpleNamespace(category_id=category_id, files=105, bytes=12915, skipped=0, reason=None) for category_id in ids),
         )
 
-    def clean(self, plan, ids, cancel, progress):
+    def clean(self, plan, ids, cancel, progress, excluded_entry_ids=()):
         self.clean_calls.append((plan.id, ids))
-        return SimpleNamespace(deleted_files=2, freed_bytes=246, skipped_files=1, failed_files=0, cancelled=False)
+        self.excluded_calls.append(tuple(excluded_entry_ids))
+        return SimpleNamespace(deleted_files=2, freed_bytes=246, skipped_files=1, failed_files=0, cancelled=False,
+                               issues=({"path": "locked.tmp", "reason": "File is in use, unavailable or no longer accessible; kept."},))
 
 
 def wait_until(service, phase):
@@ -104,6 +107,79 @@ class ServiceTests(unittest.TestCase):
         # A deselected category the user had already seen stays deselected.
         (self.data_dir / "settings.json").write_text(json.dumps({"version": 3, "selected": ["pip_cache"], "known": known + ["user_temp"]}))
         self.assertEqual({row["id"] for row in self.service().get_state()["categories"] if row["selected"]}, {"pip_cache"})
+
+    def test_deselecting_and_reselecting_scanned_categories_preserves_plan(self):
+        engine = ControlledCleaner()
+        service = self.service(engine)
+        service.set_selection(["user_temp", "pip_cache"])
+        service.scan()
+        state = wait_until(service, "ready")
+        plan = service._plan
+        self.assertEqual(service.set_selection(["user_temp"])["scan_id"], state["scan_id"])
+        self.assertEqual(service.set_selection([])["scan_id"], state["scan_id"])
+        self.assertEqual(service.set_selection(["pip_cache"])["scan_id"], state["scan_id"])
+        self.assertIs(service._plan, plan)
+        service.clean(state["scan_id"], ["pip_cache"])
+        wait_until(service, "completed")
+        self.assertEqual(engine.clean_calls, [("scan-token", ["pip_cache"])])
+        self.assertIsNone(service.set_selection(["user_temp"])["scan_id"])
+
+    def test_expired_plan_cannot_be_reselected_previewed_or_cleaned(self):
+        service = self.service()
+        service.scan()
+        wait_until(service, "ready")
+        service._plan.expires_at = time.time() - 1
+        state = service.get_state()
+        self.assertIsNone(state["scan_id"])
+        self.assertEqual(state["phase"], "idle")
+        self.assertIn("expired", state["error"])
+        with self.assertRaises(ServiceError):
+            service.get_files("scan-token", "user_temp")
+        with self.assertRaises(ServiceError):
+            service.clean("scan-token", ["user_temp"])
+        self.assertIsNone(service.set_selection([])["scan_id"])
+
+    def test_exclusions_use_only_snapshot_ids_and_update_totals(self):
+        engine = ControlledCleaner()
+        service = self.service(engine)
+        service.scan()
+        state = wait_until(service, "ready")
+        item = service.get_files(state["scan_id"], "user_temp")["items"][0]
+        for scan, entry, included in (("wrong", item["id"], False), (state["scan_id"], "../../Documents", False),
+                                     (state["scan_id"], item["path"], False), (state["scan_id"], None, False),
+                                     (state["scan_id"], item["id"], "false"), (state["scan_id"], [item["id"]], False)):
+            with self.assertRaises(ServiceError):
+                service.set_file_included(scan, entry, included)
+        state = service.set_file_included(state["scan_id"], item["id"], False)
+        category = next(row for row in state["categories"] if row["id"] == "user_temp")
+        self.assertEqual((category["files"], category["bytes"], category["excluded_files"]), (104, 12792, 1))
+        self.assertFalse(service.get_files(state["scan_id"], "user_temp")["items"][0]["included"])
+        # Changing the category selection retains the per-file choice for this plan.
+        service.set_selection([])
+        service.set_selection(["user_temp"])
+        service.clean(state["scan_id"], ["user_temp"])
+        result = wait_until(service, "completed")["result"]
+        self.assertEqual(engine.excluded_calls, [(item["id"],)])
+        self.assertEqual(result["excluded"], 1)
+        self.assertEqual(result["issues"][0]["path"], "locked.tmp")
+        with self.assertRaises(ServiceError):
+            service.set_file_included("scan-token", item["id"], True)
+
+    def test_file_exclusions_can_be_restored_and_do_not_apply_to_native_actions(self):
+        engine = ControlledCleaner()
+        service = self.service(engine)
+        service.scan()
+        state = wait_until(service, "ready")
+        service.set_file_included(state["scan_id"], "entry-0", False)
+        restored = service.set_file_included(state["scan_id"], "entry-0", True)
+        self.assertEqual(restored["categories"][0]["files"], 105)
+        self.assertEqual(restored["categories"][0]["excluded_files"], 0)
+        # A malformed native preview must never grant file-level authority.
+        engine.categories[0].native_action = "empty_recycle_bin"
+        with self.assertRaises(ServiceError):
+            service.set_file_included(state["scan_id"], "entry-0", False)
+        with self.assertRaises(ServiceError):
+            service.get_files(state["scan_id"], "user_temp")
 
     def test_cancelled_or_truncated_scan_cannot_clean(self):
         for truncated in (False, True):

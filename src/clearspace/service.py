@@ -36,6 +36,7 @@ class CleanerService:
         self._worker = None
         self._closed = False
         self._plan = None
+        self._excluded = set()
         self._categories = {category.id: category for category in self._cleaner.categories}
         defaults = [item.id for item in self._categories.values() if item.default_selected and item.available]
         self._selected = self._read_selection(defaults)
@@ -117,16 +118,25 @@ class CleanerService:
 
     def _refresh_categories(self):
         stats = {item.category_id: item for item in self._plan.category_stats} if self._plan else {}
+        excluded = {}
+        if self._plan:
+            for entry in self._plan.entries:
+                if entry.id in self._excluded:
+                    count, size = excluded.get(entry.category_id, (0, 0))
+                    excluded[entry.category_id] = (count + 1, size + entry.size)
         rows = []
         for category in self._categories.values():
             found = stats.get(category.id)
+            excluded_count, excluded_bytes = excluded.get(category.id, (0, 0))
             rows.append({
                 "id": category.id, "title": category.label, "description": category.description,
                 "selected": category.id in self._selected, "available": category.available,
                 "group": getattr(category, "group", "Windows"), "recommended": category.default_selected,
                 "native_action": getattr(category, "native_action", None),
                 "reason": (found.reason if found and found.reason else category.reason),
-                "files": found.files if found else 0, "bytes": found.bytes if found else 0,
+                "files": max(0, found.files - excluded_count) if found else 0,
+                "bytes": max(0, found.bytes - excluded_bytes) if found else 0,
+                "excluded_files": excluded_count,
                 "skipped": found.skipped if found else 0,
                 "actions": getattr(found, "actions", 0) if found else 0,
                 "size_known": getattr(found, "size_known", True) if found else True,
@@ -137,6 +147,7 @@ class CleanerService:
 
     def get_state(self):
         with self._lock:
+            self._expire_plan()
             state = deepcopy(self._state)
             state["theme"] = self._theme
             state["language"] = self._language
@@ -155,6 +166,15 @@ class CleanerService:
                     prefix = "Waiting for" if current.id != activity["action_id"] else "Windows is running"
                     state["progress"]["message"] = f"{prefix} {label} {operation}. This may take a few minutes."
             return state
+
+    def _expire_plan(self):
+        if (self._plan is not None and self._state["phase"] in {"idle", "ready"}
+                and time.time() > self._plan.expires_at):
+            self._plan = None
+            self._excluded.clear()
+            self._state.update(phase="idle", scan_id=None, scanned_at=None,
+                               error="This analysis expired. Run Analyze again.")
+            self._refresh_categories()
 
     def _require_idle(self):
         if self._closed:
@@ -178,8 +198,13 @@ class CleanerService:
             if selected == self._selected:
                 return self.get_state()
             self._selected = selected
-            self._plan = None
-            self._state.update(phase="idle", scan_id=None, scanned_at=None, progress=self._empty_progress(), result=None, error=None)
+            self._expire_plan()
+            plan = self._plan
+            usable = (plan is not None and not plan.cancelled and not plan.truncated
+                      and selected.issubset({item.category_id for item in plan.category_stats}))
+            self._state.update(phase="ready" if usable else "idle", scan_id=plan.id if usable else None,
+                               scanned_at=datetime.fromtimestamp(plan.created_at, timezone.utc).isoformat() if plan else None,
+                               progress=self._empty_progress(), result=None, error=None)
             self._refresh_categories()
             try:
                 self._write_json("settings.json", {"version": 3, "selected": sorted(selected), "known": sorted(self._categories)})
@@ -239,6 +264,7 @@ class CleanerService:
             selected = sorted(self._selected)
             self._cancel = threading.Event()
             self._plan = None
+            self._excluded.clear()
             self._state.update(phase="scanning", scan_id=None, scanned_at=None, result=None, error=None, progress=self._empty_progress())
             self._refresh_categories()
 
@@ -266,22 +292,30 @@ class CleanerService:
     def clean(self, scan_id, ids):
         with self._lock:
             self._require_idle()
+            self._expire_plan()
             selected = self._validate_ids(ids)
             if not isinstance(scan_id, str) or not scan_id or self._state["phase"] != "ready" or self._plan is None or scan_id != self._state["scan_id"]:
                 raise ServiceError("Analyze the selected categories again before cleaning.")
             if selected != self._selected or not selected:
                 raise ServiceError("Your selection changed. Analyze it again before cleaning.")
-            if not any(item.files or getattr(item, "actions", 0) for item in self._plan.category_stats if item.category_id in selected):
+            if not any(item["files"] or item["actions"] for item in self._state["categories"] if item["id"] in selected):
                 raise ServiceError("No selected category is ready to clean. Review its analysis and try again.")
             plan = self._plan
+            excluded = tuple(entry.id for entry in plan.entries if entry.id in self._excluded and entry.category_id in selected)
+            self._plan = None
+            self._excluded.clear()
             self._cancel = threading.Event()
             self._state.update(phase="cleaning", scan_id=None, result=None, error=None, progress=self._empty_progress())
 
             def run():
                 try:
-                    result = self._cleaner.clean(plan, sorted(selected), cancel=self._cancel, progress=self._progress)
+                    arguments = {"cancel": self._cancel, "progress": self._progress}
+                    if excluded:
+                        arguments["excluded_entry_ids"] = excluded
+                    result = self._cleaner.clean(plan, sorted(selected), **arguments)
                     summary = {"removed": result.deleted_files, "freed_bytes": result.freed_bytes,
-                               "skipped": result.skipped_files, "failed": result.failed_files, "cancelled": result.cancelled}
+                               "skipped": result.skipped_files, "failed": result.failed_files, "cancelled": result.cancelled,
+                               "excluded": len(excluded), "issues": [dict(item) for item in getattr(result, "issues", ())]}
                     action_results = [dict(item) for item in getattr(result, "action_results", ())]
                     summary.update(actions=action_results,
                                    actions_completed=sum(item["status"] == "completed" for item in action_results),
@@ -324,17 +358,37 @@ class CleanerService:
 
     def get_files(self, scan_id, category_id, offset=0):
         with self._lock:
-            if (not isinstance(scan_id, str) or self._plan is None or scan_id != self._plan.id
-                    or category_id not in self._categories or type(offset) is not int or offset < 0):
+            self._expire_plan()
+            if (not isinstance(scan_id, str) or self._plan is None or self._state["phase"] != "ready" or scan_id != self._plan.id
+                    or not isinstance(category_id, str) or category_id not in self._selected or type(offset) is not int or offset < 0):
                 raise ServiceError("This file list is no longer available. Analyze again.")
             if getattr(self._categories[category_id], "native_action", None):
                 raise ServiceError("This Windows-managed cleanup does not provide a file preview.")
             entries = [entry for entry in self._plan.entries if entry.category_id == category_id]
             if offset > len(entries):
                 raise ServiceError("This page is no longer available.")
-            items = [{"name": entry.path.name, "path": str(entry.path), "bytes": entry.size} for entry in entries[offset:offset + 100]]
+            items = [{"id": entry.id, "name": entry.path.name, "path": str(entry.path), "bytes": entry.size,
+                      "included": entry.id not in self._excluded} for entry in entries[offset:offset + 100]]
             next_offset = offset + len(items)
             return {"items": items, "total": len(entries), "next_offset": next_offset if next_offset < len(entries) else None}
+
+    def set_file_included(self, scan_id, entry_id, included):
+        with self._lock:
+            self._require_idle()
+            self._expire_plan()
+            if (not isinstance(scan_id, str) or not isinstance(entry_id, str) or type(included) is not bool
+                    or self._plan is None or self._state["phase"] != "ready" or scan_id != self._plan.id):
+                raise ServiceError("Choose files from the current analysis.")
+            entry = next((item for item in self._plan.entries if item.id == entry_id), None)
+            if (entry is None or entry.category_id not in self._selected
+                    or getattr(self._categories[entry.category_id], "native_action", None)):
+                raise ServiceError("Choose files from the current analysis.")
+            if included:
+                self._excluded.discard(entry_id)
+            else:
+                self._excluded.add(entry_id)
+            self._refresh_categories()
+            return self.get_state()
 
     def active(self):
         with self._lock:

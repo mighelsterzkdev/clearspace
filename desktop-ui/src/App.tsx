@@ -15,7 +15,7 @@ import { FilesDialog, type FileSelection } from './components/FilesDialog'
 import { countActions, countFiles, countItems, formatBytes, isHistoryAction, isNativeAction, isRecycleBin } from './format'
 import { useCleaner } from './use-cleaner'
 import { locale, resolveLanguage, setLanguage, t } from './i18n'
-import type { Category } from './types'
+import type { Category, FileItem } from './types'
 
 interface Review {
   scanId: string; ids: string[]; bytes: number; files: number; titles: string[];
@@ -30,6 +30,8 @@ export default function App() {
   const [details, setDetails] = useState<FileSelection | null>(null)
   const [review, setReview] = useState<Review | null>(null)
   const [tab, setTab] = useState<'cleanup' | 'tools'>('cleanup')
+  const [query, setQuery] = useState('')
+  const [order, setOrder] = useState<'group' | 'size'>('group')
   const content = useRef<HTMLElement>(null)
   const selected = state.categories.filter(category => category.selected && category.available)
   const selectedBytes = selected.reduce((sum, category) => sum + category.bytes, 0)
@@ -39,16 +41,18 @@ export default function App() {
   const analysisPending = selected.some(category => category.analysis_pending)
   const historyOnly = selected.filter(category => category.files > 0 || (category.actions || 0) > 0).every(isHistoryAction)
   const available = state.categories.filter(category => category.available)
-  const unavailable = state.categories.filter(category => !category.available)
+  const matches = (category: Category) => `${t(category.title)} ${t(category.description)} ${t(category.group || 'Windows')}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+  const unavailable = state.categories.filter(category => !category.available && matches(category))
   const analyzedNow = state.phase === 'ready' && state.scan_id !== null
   // After an analysis, selected categories with nothing to clean move out of the way.
-  const isEmpty = (category: Category) => analyzedNow && category.selected && category.files === 0 && !(category.actions ?? 0)
+  const isEmpty = (category: Category) => analyzedNow && category.selected && category.files === 0 && !(category.actions ?? 0) && !category.excluded_files
     && !category.analysis_error && !category.analysis_pending
-  const listed = available.filter(category => !isEmpty(category))
-  const empty = available.filter(isEmpty)
+  const listed = available.filter(category => !isEmpty(category) && matches(category))
+  if (order === 'size') listed.sort((a, b) => b.bytes - a.bytes || t(a.title).localeCompare(t(b.title)))
+  const empty = available.filter(category => isEmpty(category) && matches(category))
   // Each row's bar compares its size with the largest category found by the analysis.
   const largest = Math.max(0, ...listed.filter(category => state.scan_id !== null && category.selected).map(category => category.bytes))
-  const groups = [...new Set(listed.map(category => category.group || 'Windows'))]
+  const groups = order === 'size' ? (listed.length ? ['Largest first'] : []) : [...new Set(listed.map(category => category.group || 'Windows'))]
   const systemCategory = (category: Category) => category.group === 'System maintenance' || category.group === 'Disk Cleanup' || category.id.startsWith('windows_')
     || ['crash_dumps', 'system_memory_dump', 'error_reports'].includes(category.id) || /administrator/i.test(category.reason ?? '')
   const needsAdministrator = tab === 'cleanup' && state.administrator === false && selected.some(systemCategory)
@@ -110,6 +114,12 @@ export default function App() {
     setReview(null)
   }
 
+  async function setIncluded(item: FileItem, included: boolean) {
+    if (!state.scan_id) return false
+    setReview(null)
+    return Boolean(await invoke('set_file_included', state.scan_id, item.id, included))
+  }
+
   const toolActions: ToolActions = {
     flush_dns: () => void invoke('flush_dns'), test_connection: target => void invoke('test_connection', target), stop_connection: () => void invoke('stop_connection'),
     check_disks: () => void invoke('check_disks'), list_startup: () => void invoke('list_startup'), set_startup: (id, enabled) => void invoke('set_startup', id, enabled),
@@ -146,17 +156,19 @@ export default function App() {
         </div> : null}
         {state.phase === 'cancelled' && !result ? <p className="field-help analysis-message" role="status">{t('Analysis stopped. Run Analyze again to prepare a complete file list.')}</p> : null}
         <CategoryToolbar disabled={disabled} selected={selected.length} available={available.length}
+          query={query} order={order} onQuery={setQuery} onOrder={setOrder}
           onSelectAll={() => updateSelection(available.map(category => category.id))} onClear={() => updateSelection([])} />
         <div className="category-groups" aria-busy={busy}>
           {groups.map(group => <section key={group} aria-label={t('{group} cleanup', { group: t(group) })}>
             <h3 className="category-group-heading">{t(group)}</h3>
             <ul className="category-list" aria-label={t('{group} categories', { group: t(group) })}>
-              {listed.filter(category => (category.group || 'Windows') === group).map(category => <CategoryRow key={category.id} category={category} disabled={disabled} analyzed={analyzed}
+              {listed.filter(category => order === 'size' || (category.group || 'Windows') === group).map(category => <CategoryRow key={category.id} category={category} disabled={disabled} analyzed={analyzed}
                 detailsEnabled={connected && analyzed && !busy && pending === null} share={largest > 0 ? category.bytes / largest : 0}
                 onSelect={checked => select(category.id, checked)} onDetails={() => { if (state.scan_id) setDetails({ scanId: state.scan_id, categoryId: category.id, title: category.title }) }} />)}
             </ul>
           </section>)}
         </div>
+        {query.trim() && listed.length === 0 && empty.length === 0 && unavailable.length === 0 ? <p className="field-help" role="status">{t('No categories match your search.')}</p> : null}
         {available.length === 0 ? <div className="category-empty" role="status"><p>{t(!connected ? 'Loading cleanup categories…' : 'No cleanup categories available')}</p></div> : null}
         {empty.length > 0 ? <details className="unavailable-categories">
           <summary><ChevronRight className="summary-chevron" aria-hidden="true" />{t('Nothing to clean ({count})', { count: empty.length })}</summary>
@@ -179,7 +191,7 @@ export default function App() {
     </main>
     {tab === 'cleanup' ? <div className="action-bar"><div><p>{busy ? status : ready ? readySummary : t(selected.length === 1 ? '{count} category selected' : '{count} categories selected', { count: selected.length })}</p><span>{busy ? t('{count} items checked', { count: state.progress.checked.toLocaleString(locale()) }) : ready ? readyDetails : t('Analyze to see what can be removed.')}</span></div>{busy ? <Button size="lg" variant="outline" disabled={!connected || pending !== null} onClick={() => void invoke('cancel')}>{pending === 'cancel' ? <LoaderCircle className="animate-spin" /> : <X />}{t(pending === 'cancel' ? 'Stopping…' : 'Stop')}</Button> : ready ? <Button size="lg" disabled={!canClean} onClick={requestClean}><Trash2 />{t('Clean selected')}<ArrowRight /></Button> : <Button size="lg" disabled={disabled || selected.length === 0} onClick={analyze}>{pending === 'scan' ? <LoaderCircle className="animate-spin" /> : <Search />}{t('Analyze')}<ArrowRight /></Button>}</div> : null}
     <footer className="app-footer"><span>{status}</span><span>{state.version ? `v${state.version}` : 'Clearspace'}</span></footer>
-    <FilesDialog selection={details} scanId={state.scan_id} onClose={() => setDetails(null)} />
+    <FilesDialog selection={details} scanId={state.scan_id} onIncludedChange={setIncluded} onClose={() => setDetails(null)} />
     <Dialog open={reviewOpen} onOpenChange={value => { if (!value) setReview(null) }}><DialogContent className="confirm-dialog">
       <DialogHeader><DialogTitle>{review?.actions ? t('Confirm cleanup') : t('Remove {size}?', { size: formatBytes(review?.bytes ?? 0) })}</DialogTitle><DialogDescription>{reviewDescription}</DialogDescription></DialogHeader>
       <p className="review-categories">{review?.titles.map(title => t(title)).join(' · ')}</p>

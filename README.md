@@ -4,6 +4,13 @@ A small Windows cleaner built with Python and a dark React interface using Radix
 
 ![Clearspace desktop interface](docs/clearspace.png)
 
+## Version 0.8.0
+
+- Review once, then uncheck or reselect already analyzed categories without repeating the scan. Adding a category that was not analyzed requires another scan; analyses still expire after 30 minutes.
+- Keep individual files from a cache: open its file preview and uncheck the files to preserve. Counts, sizes and confirmation update with your choices. Choices apply only to the current analysis. Windows-managed actions, history and the Recycle Bin remain whole actions.
+- Search cleanup categories by application, description or group, and sort all categories by largest size first.
+- Expand the cleanup result to see recorded paths and reasons for skipped or failed files. Up to 200 issue details are retained; totals can include additional skipped items.
+
 ## Version 0.7.4
 
 - The disk card shows used and free space, and after an analysis it marks how much the selected categories can free.

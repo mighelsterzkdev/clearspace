@@ -38,11 +38,11 @@ export function CategoryRow({ category, disabled, analyzed, detailsEnabled, shar
     <div className="category-actions">
       <div className="category-metrics">
         <span>{size}</span>
-        <span>{detail}</span>
+        <span>{detail}{scanned && category.excluded_files ? ` · ${t('{count} kept', { count: category.excluded_files })}` : ''}</span>
         {scanned && share > 0 && !history ? <i className="category-share" aria-hidden="true"><b style={{ width: `${Math.max(4, share * 100)}%` }} /></i> : null}
       </div>
       {recycleBin || native ? <span className="category-preview-space" aria-hidden="true" /> : <Button variant="ghost" size="icon-sm" aria-label={t('View files for {title}', { title: t(category.title) })} title={t('View files')}
-        disabled={!detailsEnabled || category.files === 0} onClick={onDetails}><Eye /></Button>}
+        disabled={!detailsEnabled || category.files + (category.excluded_files ?? 0) === 0} onClick={onDetails}><Eye /></Button>}
     </div>
   </li>
 }
